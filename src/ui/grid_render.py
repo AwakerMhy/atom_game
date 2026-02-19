@@ -33,12 +33,14 @@ ATOM_COLOR_KEYS = {
 def _grid_transform_view(
     rect: Tuple[int, int, int, int],
     view_origin: Tuple[int, int],
+    view_pan_px: Tuple[float, float] = (0.0, 0.0),
 ) -> Tuple[float, float, float, float]:
     """
-    三角形边长 = 格子边长的 1/4（固定 scale）；可见窗口中心对齐到 rect 中心。
-    view_origin: (r0, c0) 可见窗口左上角格点。
+    三角形边长 = 格子边长的 1/4；可见窗口中心对齐到 rect 中心。
+    view_pan_px: (px, py) 像素偏移，使网格相对屏幕连续滑动。
     """
     r0, c0 = view_origin
+    pan_x, pan_y = view_pan_px
     rw, rh = rect[2], rect[3]
     cx = rect[0] + rw / 2.0
     cy = rect[1] + rh / 2.0
@@ -47,9 +49,28 @@ def _grid_transform_view(
     r_center = r0 + VISIBLE_GRID_ROWS // 2
     c_center = c0 + VISIBLE_GRID_COLS // 2
     x_c, y_c = point_to_xy(r_center, c_center)
-    ox = cx - x_c * scale
-    oy = cy - y_c * scale
+    ox = cx - x_c * scale + pan_x
+    oy = cy - y_c * scale + pan_y
     return scale, ox, oy
+
+
+def get_scale_for_cell(rect: Tuple[int, int, int, int], view_origin: Tuple[int, int]) -> float:
+    """用于主循环将拖动像素差转为网格差（视角拖动）。"""
+    scale, _, _ = _grid_transform_view(rect, view_origin)
+    return scale
+
+
+def clamp_view_origin(
+    r0: int, c0: int,
+    rows: int = DEFAULT_GRID_ROWS,
+    cols: int = DEFAULT_GRID_COLS,
+    visible_rows: int = VISIBLE_GRID_ROWS,
+    visible_cols: int = VISIBLE_GRID_COLS,
+) -> Tuple[int, int]:
+    """将视窗原点限制在有效范围内，使可见窗口不越出网格。"""
+    r0 = max(0, min(r0, rows - visible_rows))
+    c0 = max(0, min(c0, cols - visible_cols))
+    return (r0, c0)
 
 
 def _to_screen(
@@ -62,6 +83,7 @@ def _to_screen(
 def hexagon_screen_polygon(
     cell_rect: Tuple[int, int, int, int],
     view_origin: Tuple[int, int],
+    view_pan_px: Tuple[float, float] = (0.0, 0.0),
     center_r: int = GRID_CENTER_R,
     center_c: int = GRID_CENTER_C,
     radius: int = HEX_RADIUS,
@@ -70,7 +92,7 @@ def hexagon_screen_polygon(
     返回正六边形在屏幕坐标系下的 6 个顶点（与当前视窗的 scale/ox/oy 一致），
     用于绘制六边形背景或遮蔽格子外的区域。
     """
-    scale, ox, oy = _grid_transform_view(cell_rect, view_origin)
+    scale, ox, oy = _grid_transform_view(cell_rect, view_origin, view_pan_px)
     # 轴向坐标下正六边形的 6 个顶点（相对中心）
     # 顺序：右、(右下)、下、(左下)、左、(左上)、上、(右上) 即绕一圈
     dr_dc = [(radius, 0), (radius, -radius), (0, -radius), (-radius, 0), (-radius, radius), (0, radius)]
@@ -87,11 +109,12 @@ def screen_to_grid(
     view_origin: Tuple[int, int],
     screen_x: float,
     screen_y: float,
+    view_pan_px: Tuple[float, float] = (0.0, 0.0),
     rows: int = DEFAULT_GRID_ROWS,
     cols: int = DEFAULT_GRID_COLS,
 ) -> Optional[Tuple[int, int]]:
     """将屏幕坐标转换为格点 (r, c)；越界时钳位到有效范围。"""
-    scale, ox, oy = _grid_transform_view(cell_rect, view_origin)
+    scale, ox, oy = _grid_transform_view(cell_rect, view_origin, view_pan_px)
     x = (screen_x - ox) / scale
     y = (screen_y - oy) / scale
     r = round(y / TRI_HEIGHT)
@@ -108,15 +131,15 @@ def draw_cell_grid(
     view_origin: Tuple[int, int],
     valid_points: Optional[Set[GridPoint]] = None,
     highlight_points: Optional[Set[GridPoint]] = None,
+    view_pan_px: Tuple[float, float] = (0.0, 0.0),
 ) -> None:
     """
     在 cell_rect 内绘制正三角形网格、格点与原子。
-    仅绘制在 valid_points 内且位于可见窗口 [r0..r0+VISIBLE_ROWS) x [c0..c0+VISIBLE_COLS) 内的点；
-    若 valid_points 为 None 则视为整个矩形网格。
-    三角形边长固定为格子边长的 1/4。
+    仅绘制在 valid_points 内且位于可见窗口内的点。
+    view_pan_px: 像素偏移，使网格相对屏幕连续滑动。
     """
     r0, c0 = view_origin
-    scale, ox, oy = _grid_transform_view(cell_rect, view_origin)
+    scale, ox, oy = _grid_transform_view(cell_rect, view_origin, view_pan_px)
     r1 = r0 + VISIBLE_GRID_ROWS
     c1 = c0 + VISIBLE_GRID_COLS
 

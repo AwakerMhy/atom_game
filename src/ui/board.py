@@ -64,15 +64,18 @@ def draw_board(
     current_player: Optional[int] = None,
     highlight_atoms_by_cell: Optional[Dict[int, Set[GridPoint]]] = None,
     view_offsets: Optional[List[List[Tuple[int, int]]]] = None,
+    view_pan_px: Optional[List[List[Tuple[float, float]]]] = None,
 ) -> List[List[Tuple[int, int, int, int]]]:
     """
     绘制双方各 3 格，返回 layout_cell_rects() 的 rect 列表。
-    view_offsets: [player][cell_index] = (r0, c0) 视窗原点；None 时使用六边形居中。
+    view_offsets: [player][cell_index] = (r0, c0) 视窗原点。
+    view_pan_px: [player][cell_index] = (pan_x, pan_y) 像素偏移，用于连续滑动。
     """
     rects = layout_cell_rects()
     beige = COLORS.get("cell_bg", (245, 235, 210))
     frame_color = COLORS.get("cell_frame", (80, 70, 60))
     default_vo = _default_view_origin()
+    default_pan = (0.0, 0.0)
     for player in range(2):
         for cell_index in range(3):
             rect = rects[player][cell_index]
@@ -83,12 +86,15 @@ def draw_board(
             view_origin = default_vo
             if view_offsets and player < len(view_offsets) and cell_index < len(view_offsets[player]):
                 view_origin = view_offsets[player][cell_index]
+            pan_px = default_pan
+            if view_pan_px and player < len(view_pan_px) and cell_index < len(view_pan_px[player]):
+                pan_px = view_pan_px[player][cell_index]
             # 格子内先填遮蔽色，再只画六边形区域为米色，使六边形外网格被遮住
             clip_rect = pygame.Rect(x, y, w, h)
             old_clip = screen.get_clip()
             screen.set_clip(clip_rect)
             pygame.draw.rect(screen, frame_color, clip_rect)
-            hex_poly = hexagon_screen_polygon(rect, view_origin)
+            hex_poly = hexagon_screen_polygon(rect, view_origin, pan_px)
             pygame.draw.polygon(screen, beige, [(int(px), int(py)) for px, py in hex_poly])
             cell = cells[player][cell_index]
             valid_points = set(cell.grid.all_points())
@@ -103,6 +109,7 @@ def draw_board(
                 view_origin=view_origin,
                 valid_points=valid_points,
                 highlight_points=hp,
+                view_pan_px=pan_px,
             )
             screen.set_clip(old_clip)
             if highlight_cell is not None and highlight_cell == (player, cell_index):
@@ -116,12 +123,14 @@ def hit_test_cell(
     screen_x: int,
     screen_y: int,
     view_offsets: Optional[List[List[Tuple[int, int]]]] = None,
+    view_pan_px: Optional[List[List[Tuple[float, float]]]] = None,
 ) -> Optional[Tuple[int, int, int]]:
     """
     若 (screen_x, screen_y) 在指定玩家的某格内，返回 (player, cell_index, (r,c))。
-    view_offsets 与 draw_board 一致：(r0, c0) 视窗原点。
+    view_offsets、view_pan_px 与 draw_board 一致。
     """
     default_vo = _default_view_origin()
+    default_pan = (0.0, 0.0)
     row = rects[player]
     for cell_index, rect in enumerate(row):
         x, y, w, h = rect
@@ -129,7 +138,10 @@ def hit_test_cell(
             view_origin = default_vo
             if view_offsets and player < len(view_offsets) and cell_index < len(view_offsets[player]):
                 view_origin = view_offsets[player][cell_index]
-            pt = screen_to_grid(rect, view_origin, screen_x, screen_y)
+            pan_px = default_pan
+            if view_pan_px and player < len(view_pan_px) and cell_index < len(view_pan_px[player]):
+                pan_px = view_pan_px[player][cell_index]
+            pt = screen_to_grid(rect, view_origin, screen_x, screen_y, view_pan_px=pan_px)
             if pt is not None:
                 return (player, cell_index, pt)
     return None
