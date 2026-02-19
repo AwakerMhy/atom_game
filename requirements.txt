@@ -1,0 +1,2 @@
+# Atom Game - Python 3.10+
+pygame>=2.5.0
