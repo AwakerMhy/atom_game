@@ -3,6 +3,7 @@
 """
 from typing import Dict, List, Optional
 from src.grid.cell import Cell, ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, COLORS as ATOM_COLORS
+from src.game.game_config import GameConfig, default_config
 
 # 阶段
 PHASE_CONFIRM = 0   # 确认场上状态，选 a/b/c
@@ -44,9 +45,11 @@ def make_cells() -> List[Cell]:
 
 
 class GameState:
-    def __init__(self):
-        # 玩家 0 与 1：原子池、生命、3 个格子
-        self.pools: List[Dict[str, int]] = [make_initial_pool(), make_initial_pool()]
+    def __init__(self, config: Optional[GameConfig] = None):
+        cfg = config or default_config()
+        # 玩家 0 与 1：原子池（按配置）、生命、3 个格子
+        pool_copy = dict(cfg.initial_pool)
+        self.pools = [dict(pool_copy), dict(pool_copy)]
         self.hp: List[int] = [INITIAL_HP, INITIAL_HP]
         self.cells: List[List[Cell]] = [make_cells(), make_cells()]
 
@@ -54,9 +57,13 @@ class GameState:
         self.phase: int = PHASE_CONFIRM
         self.phase_0_choice: Optional[str] = None  # "a" | "b" | "c"
 
+        self.base_draw_count: int = cfg.base_draw_count
+        self.base_place_limit: int = cfg.base_place_limit
+        self.draw_weights: List[int] = list(cfg.draw_weights)
+
         # 本回合限制（在阶段 0 选择后设定）
-        self.turn_draw_count: int = 5
-        self.turn_place_limit: int = 4
+        self.turn_draw_count: int = cfg.base_draw_count
+        self.turn_place_limit: int = cfg.base_place_limit
         self.turn_attack_limit: int = 1
 
         # 本回合已用

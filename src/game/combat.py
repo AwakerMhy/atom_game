@@ -126,6 +126,22 @@ def destroy_one_black_and_get_components(
     return damage, components
 
 
+def remove_components_without_black(cell: Cell) -> tuple[List[Set[GridPoint]], List[GridPoint]]:
+    """
+    移除所有不含黑原子的连通分量。
+    返回 (剩余分量列表, 被移除的格点列表)，便于播放破坏音效/动画。
+    """
+    components = cell.connected_components()
+    removed: List[GridPoint] = []
+    for comp in components:
+        has_black = any(cell.get(r, c) == ATOM_BLACK for (r, c) in comp)
+        if not has_black:
+            for (r, c) in comp:
+                cell.remove(r, c)
+                removed.append((r, c))
+    return (cell.connected_components(), removed)
+
+
 def remove_components_except(cell: Cell, to_keep: Set[GridPoint]) -> None:
     """保留 to_keep 所在连通分量，移除其余分量中的原子。"""
     components = cell.connected_components()
@@ -145,7 +161,8 @@ def apply_effect_red(
 ) -> bool:
     """
     发动红效果：移除己方 (cell_index, r, c) 上的红原子；
-    对方必须破坏 y 个原子，atoms_to_destroy 为 [(defender, cell_i, (r,c)), ...] 共 y 个。
+    对方必须破坏若干黑原子，atoms_to_destroy 为 [(defender, cell_i, (r,c)), ...]，
+    数量为 min(y, 对方当前黑原子数)，且每个目标必须为黑原子。
     若某格破坏后无黑，该格全部原子破坏。
     """
     cells = state.player_cells(attacker)
@@ -155,14 +172,18 @@ def apply_effect_red(
     if cell.get(r, c) != ATOM_RED:
         return False
     y = cell.count_black_neighbors(r, c)
-    if len(atoms_to_destroy) != y:
+    if len(atoms_to_destroy) > y:
         return False
-    cell.remove(r, c)
+    # 允许 0 个（对方无黑原子时直接确认）
     defender = state.opponent(attacker)
     def_cells = state.player_cells(defender)
     for (pi, ci, pt) in atoms_to_destroy:
         if pi != defender or ci < 0 or ci >= len(def_cells):
             return False
+        if def_cells[ci].get(pt[0], pt[1]) != ATOM_BLACK:
+            return False
+    cell.remove(r, c)
+    for (pi, ci, pt) in atoms_to_destroy:
         def_cells[ci].remove(pt[0], pt[1])
     for ci, cell_def in enumerate(def_cells):
         if not cell_def.has_black() and not cell_def.is_empty():

@@ -13,16 +13,22 @@ from src.config import (
     VISIBLE_GRID_ROWS,
     VISIBLE_GRID_COLS,
     COLORS,
+    get_font,
 )
 from src.ui.grid_render import draw_cell_grid, screen_to_grid, hexagon_screen_polygon
 from src.grid.cell import Cell
 from src.grid.triangle import GridPoint
+from src.game import combat
 
 
 # 每格占用的像素宽高
 CELL_W = 220
 CELL_H = 200
-GAP = 16
+GAP = 32
+# 双方格子上下间距（拉大两行之间距离）
+ROW_GAP = 80
+# 场地整体向右偏移（为左侧竖排按钮留空）
+BOARD_OFFSET_X = 80
 # 格子边框宽度（外框）
 CELL_FRAME_W = 4
 
@@ -30,19 +36,18 @@ CELL_FRAME_W = 4
 def layout_cell_rects() -> List[List[Tuple[int, int, int, int]]]:
     """
     返回 [玩家0的3个rect, 玩家1的3个rect]。
-    双方场地居中：每行 3 格横向排列，整体在屏幕水平中央；P1 在上、P0 在下，垂直居中。
+    双方场地偏右、垂直居中：P1 在上、P0 在下，两行之间 ROW_GAP 间距。
     """
     total_w = 3 * CELL_W + 2 * GAP
-    left = (SCREEN_WIDTH - total_w) // 2
-    # 两行场地 + 中间空隙，整体垂直居中
-    board_h = 2 * CELL_H + 2 * GAP
+    left = (SCREEN_WIDTH - total_w) // 2 + BOARD_OFFSET_X
+    board_h = 2 * CELL_H + ROW_GAP
     top1 = (SCREEN_HEIGHT - board_h) // 2
     y1 = top1
     row1 = [
         (left + i * (CELL_W + GAP), y1, CELL_W, CELL_H)
         for i in range(3)
     ]
-    y0 = top1 + CELL_H + 2 * GAP
+    y0 = top1 + CELL_H + ROW_GAP
     row0 = [
         (left + i * (CELL_W + GAP), y0, CELL_W, CELL_H)
         for i in range(3)
@@ -63,13 +68,14 @@ def draw_board(
     highlight_cell: Optional[Tuple[int, int]] = None,
     current_player: Optional[int] = None,
     highlight_atoms_by_cell: Optional[Dict[int, Set[GridPoint]]] = None,
+    highlight_atoms_red_for_player: Optional[Tuple[int, Dict[int, Set[GridPoint]]]] = None,
     view_offsets: Optional[List[List[Tuple[int, int]]]] = None,
     view_pan_px: Optional[List[List[Tuple[float, float]]]] = None,
+    grid_scale_denom: int = 4,
 ) -> List[List[Tuple[int, int, int, int]]]:
     """
     绘制双方各 3 格，返回 layout_cell_rects() 的 rect 列表。
-    view_offsets: [player][cell_index] = (r0, c0) 视窗原点。
-    view_pan_px: [player][cell_index] = (pan_x, pan_y) 像素偏移，用于连续滑动。
+    grid_scale_denom: 三角形边长与格子边长比例的分母（3~8，即 1:3 到 1:8）。
     """
     rects = layout_cell_rects()
     beige = COLORS.get("cell_bg", (245, 235, 210))
@@ -94,7 +100,7 @@ def draw_board(
             old_clip = screen.get_clip()
             screen.set_clip(clip_rect)
             pygame.draw.rect(screen, frame_color, clip_rect)
-            hex_poly = hexagon_screen_polygon(rect, view_origin, pan_px)
+            hex_poly = hexagon_screen_polygon(rect, view_origin, pan_px, grid_scale_denom=grid_scale_denom)
             pygame.draw.polygon(screen, beige, [(int(px), int(py)) for px, py in hex_poly])
             cell = cells[player][cell_index]
             valid_points = set(cell.grid.all_points())
@@ -102,6 +108,9 @@ def draw_board(
             hp = None
             if current_player is not None and highlight_atoms_by_cell is not None and player == current_player:
                 hp = highlight_atoms_by_cell.get(cell_index, set())
+            hp_red = None
+            if highlight_atoms_red_for_player is not None and player == highlight_atoms_red_for_player[0]:
+                hp_red = highlight_atoms_red_for_player[1].get(cell_index, set())
             draw_cell_grid(
                 screen,
                 cell_rect=rect,
@@ -109,11 +118,21 @@ def draw_board(
                 view_origin=view_origin,
                 valid_points=valid_points,
                 highlight_points=hp,
+                highlight_points_red=hp_red,
                 view_pan_px=pan_px,
+                grid_scale_denom=grid_scale_denom,
             )
             screen.set_clip(old_clip)
             if highlight_cell is not None and highlight_cell == (player, cell_index):
                 pygame.draw.rect(screen, (255, 200, 80), rect, 3)
+            # 格子下方显示 ATK / DEF
+            atk = combat.attack_power(cell)
+            def_ = combat.defense_power(cell)
+            font = get_font(14)
+            text = font.render(f"ATK: {atk:.1f}  DEF: {def_:.1f}", True, COLORS["ui_text"])
+            tx = rect[0] + (rect[2] - text.get_width()) // 2
+            ty = rect[1] + rect[3] + 4
+            screen.blit(text, (tx, ty))
     return rects
 
 
@@ -124,6 +143,7 @@ def hit_test_cell(
     screen_y: int,
     view_offsets: Optional[List[List[Tuple[int, int]]]] = None,
     view_pan_px: Optional[List[List[Tuple[float, float]]]] = None,
+    grid_scale_denom: int = 4,
 ) -> Optional[Tuple[int, int, int]]:
     """
     若 (screen_x, screen_y) 在指定玩家的某格内，返回 (player, cell_index, (r,c))。
@@ -141,7 +161,7 @@ def hit_test_cell(
             pan_px = default_pan
             if view_pan_px and player < len(view_pan_px) and cell_index < len(view_pan_px[player]):
                 pan_px = view_pan_px[player][cell_index]
-            pt = screen_to_grid(rect, view_origin, screen_x, screen_y, view_pan_px=pan_px)
+            pt = screen_to_grid(rect, view_origin, screen_x, screen_y, view_pan_px=pan_px, grid_scale_denom=grid_scale_denom)
             if pt is not None:
                 return (player, cell_index, pt)
     return None

@@ -25,17 +25,19 @@ def apply_phase_0_choice(state: GameState, choice: str) -> bool:
         return False
     state.phase_0_choice = choice
     x = state.x_for_turn()
+    base_draw = state.base_draw_count
+    base_place = state.base_place_limit
     if choice == CHOICE_EXTRA_DRAW:
-        state.turn_draw_count = 5 + x
-        state.turn_place_limit = 4
+        state.turn_draw_count = base_draw + x
+        state.turn_place_limit = base_place
         state.turn_attack_limit = 1
     elif choice == CHOICE_EXTRA_PLACE:
-        state.turn_draw_count = 5
-        state.turn_place_limit = 4 + x
+        state.turn_draw_count = base_draw
+        state.turn_place_limit = base_place + x
         state.turn_attack_limit = 1
     else:
-        state.turn_draw_count = 5
-        state.turn_place_limit = 4
+        state.turn_draw_count = base_draw
+        state.turn_place_limit = base_place
         state.turn_attack_limit = max(1, x)
     return True
 
@@ -43,7 +45,7 @@ def apply_phase_0_choice(state: GameState, choice: str) -> bool:
 def advance_to_phase_1(state: GameState) -> None:
     """阶段 0 结束后进入阶段 1 并执行抽原子。"""
     state.phase = PHASE_DRAW
-    drawn = draw_atoms(state.turn_draw_count)
+    drawn = draw_atoms(state.turn_draw_count, weights=state.draw_weights)
     pool = state.pool(state.current_player)
     for color in drawn:
         pool[color] = pool.get(color, 0) + 1
@@ -106,8 +108,8 @@ def end_turn(state: GameState) -> None:
     state.current_player = state.opponent(state.current_player)
     state.phase = PHASE_CONFIRM
     state.phase_0_choice = None
-    state.turn_draw_count = 5
-    state.turn_place_limit = 4
+    state.turn_draw_count = state.base_draw_count
+    state.turn_place_limit = state.base_place_limit
     state.turn_attack_limit = 1
     state.turn_placed_count = 0
     state.turn_attack_used = 0

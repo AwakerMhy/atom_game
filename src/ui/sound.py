@@ -71,6 +71,8 @@ def _load(name: str) -> bool:
         arr = _synth_tone(600, 0.05, 0.2, True)
     elif name == "undo":
         arr = _synth_tone(300, 0.07, 0.25, True)
+    elif name == "destroy":
+        arr = _synth_tone(120, 0.15, 0.4, True)
     else:
         arr = _synth_tone(440, 0.08, 0.2, True)
     if arr is not None:
@@ -108,3 +110,9 @@ def play_click():
 def play_undo():
     if _load("undo") and _SOUNDS["undo"]:
         _SOUNDS["undo"].play()
+
+
+def play_destroy():
+    """原子被破坏时播放。"""
+    if _load("destroy") and _SOUNDS["destroy"]:
+        _SOUNDS["destroy"].play()

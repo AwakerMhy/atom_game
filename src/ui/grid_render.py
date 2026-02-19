@@ -34,9 +34,10 @@ def _grid_transform_view(
     rect: Tuple[int, int, int, int],
     view_origin: Tuple[int, int],
     view_pan_px: Tuple[float, float] = (0.0, 0.0),
+    grid_scale_denom: int = 4,
 ) -> Tuple[float, float, float, float]:
     """
-    三角形边长 = 格子边长的 1/4；可见窗口中心对齐到 rect 中心。
+    三角形边长 = 格子边长的 1/grid_scale_denom（3~8 可调）；可见窗口中心对齐到 rect 中心。
     view_pan_px: (px, py) 像素偏移，使网格相对屏幕连续滑动。
     """
     r0, c0 = view_origin
@@ -45,7 +46,8 @@ def _grid_transform_view(
     cx = rect[0] + rw / 2.0
     cy = rect[1] + rh / 2.0
     cell_side = min(rw, rh, CELL_SIDE_FOR_SCALE)
-    scale = cell_side / 4.0
+    denom = max(3, min(8, grid_scale_denom))
+    scale = cell_side / float(denom)
     r_center = r0 + VISIBLE_GRID_ROWS // 2
     c_center = c0 + VISIBLE_GRID_COLS // 2
     x_c, y_c = point_to_xy(r_center, c_center)
@@ -54,9 +56,13 @@ def _grid_transform_view(
     return scale, ox, oy
 
 
-def get_scale_for_cell(rect: Tuple[int, int, int, int], view_origin: Tuple[int, int]) -> float:
+def get_scale_for_cell(
+    rect: Tuple[int, int, int, int],
+    view_origin: Tuple[int, int],
+    grid_scale_denom: int = 4,
+) -> float:
     """用于主循环将拖动像素差转为网格差（视角拖动）。"""
-    scale, _, _ = _grid_transform_view(rect, view_origin)
+    scale, _, _ = _grid_transform_view(rect, view_origin, (0.0, 0.0), grid_scale_denom)
     return scale
 
 
@@ -87,12 +93,13 @@ def hexagon_screen_polygon(
     center_r: int = GRID_CENTER_R,
     center_c: int = GRID_CENTER_C,
     radius: int = HEX_RADIUS,
+    grid_scale_denom: int = 4,
 ) -> List[Tuple[float, float]]:
     """
     返回正六边形在屏幕坐标系下的 6 个顶点（与当前视窗的 scale/ox/oy 一致），
     用于绘制六边形背景或遮蔽格子外的区域。
     """
-    scale, ox, oy = _grid_transform_view(cell_rect, view_origin, view_pan_px)
+    scale, ox, oy = _grid_transform_view(cell_rect, view_origin, view_pan_px, grid_scale_denom)
     # 轴向坐标下正六边形的 6 个顶点（相对中心）
     # 顺序：右、(右下)、下、(左下)、左、(左上)、上、(右上) 即绕一圈
     dr_dc = [(radius, 0), (radius, -radius), (0, -radius), (-radius, 0), (-radius, radius), (0, radius)]
@@ -104,6 +111,19 @@ def hexagon_screen_polygon(
     return out
 
 
+def grid_point_to_screen(
+    cell_rect: Tuple[int, int, int, int],
+    view_origin: Tuple[int, int],
+    r: int,
+    c: int,
+    view_pan_px: Tuple[float, float] = (0.0, 0.0),
+    grid_scale_denom: int = 4,
+) -> Tuple[float, float]:
+    """将格点 (r, c) 转为该格在屏幕上的像素坐标。"""
+    scale, ox, oy = _grid_transform_view(cell_rect, view_origin, view_pan_px, grid_scale_denom)
+    return _to_screen(r, c, scale, ox, oy)
+
+
 def screen_to_grid(
     cell_rect: Tuple[int, int, int, int],
     view_origin: Tuple[int, int],
@@ -112,9 +132,10 @@ def screen_to_grid(
     view_pan_px: Tuple[float, float] = (0.0, 0.0),
     rows: int = DEFAULT_GRID_ROWS,
     cols: int = DEFAULT_GRID_COLS,
+    grid_scale_denom: int = 4,
 ) -> Optional[Tuple[int, int]]:
     """将屏幕坐标转换为格点 (r, c)；越界时钳位到有效范围。"""
-    scale, ox, oy = _grid_transform_view(cell_rect, view_origin, view_pan_px)
+    scale, ox, oy = _grid_transform_view(cell_rect, view_origin, view_pan_px, grid_scale_denom)
     x = (screen_x - ox) / scale
     y = (screen_y - oy) / scale
     r = round(y / TRI_HEIGHT)
@@ -131,7 +152,9 @@ def draw_cell_grid(
     view_origin: Tuple[int, int],
     valid_points: Optional[Set[GridPoint]] = None,
     highlight_points: Optional[Set[GridPoint]] = None,
+    highlight_points_red: Optional[Set[GridPoint]] = None,
     view_pan_px: Tuple[float, float] = (0.0, 0.0),
+    grid_scale_denom: int = 4,
 ) -> None:
     """
     在 cell_rect 内绘制正三角形网格、格点与原子。
@@ -139,7 +162,7 @@ def draw_cell_grid(
     view_pan_px: 像素偏移，使网格相对屏幕连续滑动。
     """
     r0, c0 = view_origin
-    scale, ox, oy = _grid_transform_view(cell_rect, view_origin, view_pan_px)
+    scale, ox, oy = _grid_transform_view(cell_rect, view_origin, view_pan_px, grid_scale_denom)
     r1 = r0 + VISIBLE_GRID_ROWS
     c1 = c0 + VISIBLE_GRID_COLS
 
@@ -166,18 +189,22 @@ def draw_cell_grid(
                     pt2 = _to_screen(nr, nc, scale, ox, oy)
                     pygame.draw.line(screen, COLORS["grid_line"], pt, pt2, 1)
 
-    # 格点小圆
-    radius = max(2, int(scale * 0.2))
+    # 格点小圆：无原子的节点画小一点、颜色浅一点；有原子的由下面原子圆绘制
+    radius_empty = max(1, int(scale * 0.12))
+    color_empty = (130, 138, 155)
     for r in range(r0, r1):
         for c in range(c0, c1):
             if not in_view(r, c):
                 continue
+            if (r, c) in cell_atoms:
+                continue
             pos = _to_screen(r, c, scale, ox, oy)
-            pygame.draw.circle(screen, COLORS["grid_point"], (int(pos[0]), int(pos[1])), radius)
+            pygame.draw.circle(screen, color_empty, (int(pos[0]), int(pos[1])), radius_empty)
 
     # 原子与高亮
     atom_radius = max(3, int(scale * 0.26))
     highlight_set = highlight_points or set()
+    highlight_red_set = highlight_points_red if highlight_points_red is not None else set()
     for (r, c), color in cell_atoms.items():
         if not in_view(r, c):
             continue
@@ -186,5 +213,7 @@ def draw_cell_grid(
         key = ATOM_COLOR_KEYS.get(color, "atom_black")
         pygame.draw.circle(screen, COLORS[key], pos, atom_radius)
         pygame.draw.circle(screen, COLORS["grid_line"], pos, atom_radius, 1)
-        if (r, c) in highlight_set:
+        if (r, c) in highlight_red_set:
+            pygame.draw.circle(screen, (255, 80, 80), pos, atom_radius + 4, 2)
+        elif (r, c) in highlight_set:
             pygame.draw.circle(screen, (255, 220, 80), pos, atom_radius + 4, 2)
