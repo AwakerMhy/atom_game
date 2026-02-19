@@ -13,7 +13,7 @@ from src.game.turn import (
     end_turn,
 )
 from src.game import combat
-from src.ui.board import draw_board, layout_cell_rects, hit_test_cell
+from src.ui.board import draw_board, layout_cell_rects, hit_test_cell, _default_view_origin
 from src.ui import sound as ui_sound
 from src.ui.hud import (
     draw_hud,
@@ -30,7 +30,6 @@ from src.ui.buttons import (
     draw_atom_pool_and_end,
     draw_phase3_buttons,
     draw_rules_button,
-    draw_pan_mode_button,
     draw_dragging_ghost,
     hit_button,
 )
@@ -64,11 +63,9 @@ def main():
     last_phase3_rects = []
     last_rules_rect = None
     last_rules_close_rect = None
-    last_pan_rect = None
-    # 每格视角偏移 (像素)，用于拖动视角
-    view_offsets = [[(0.0, 0.0) for _ in range(3)] for _ in range(2)]
-    pan_mode = False
-    pan_start = None  # (player, cell_index, start_x, start_y, start_off_x, start_off_y)
+    # 每格视窗原点 (r0, c0)，初始为六边形居中
+    _vo = _default_view_origin()
+    view_offsets = [[_vo for _ in range(3)] for _ in range(2)]
 
     def reset_action():
         nonlocal action_substate, attack_my_cell, attack_enemy_cell, attack_components, attack_extra_pending, effect_red_pending
@@ -92,14 +89,9 @@ def main():
 
             if event.type == pygame.MOUSEMOTION:
                 mouse_pos = event.pos
-                if pan_start is not None:
-                    p, ci, sx, sy, ox, oy = pan_start
-                    view_offsets[p][ci] = (ox + (mouse_pos[0] - sx), oy + (mouse_pos[1] - sy))
 
             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-                if pan_start is not None:
-                    pan_start = None
-                elif dragging_color is not None:
+                if dragging_color is not None:
                     mx, my = event.pos[0], event.pos[1]
                     cur = state.current_player
                     hit = hit_test_cell(cell_rects, cur, mx, my, view_offsets)
@@ -128,6 +120,8 @@ def main():
                         state = GameState()
                         reset_action()
                         place_history.clear()
+                        _vo = _default_view_origin()
+                        view_offsets[:] = [[_vo for _ in range(3)] for _ in range(2)]
                         ui_sound.play_click()
                         message = "新对局开始，P0 先手，请点击下方按钮选择效果"
                         consumed = True
@@ -139,21 +133,6 @@ def main():
                     show_rules = not show_rules
                     ui_sound.play_click()
                     consumed = True
-                if not consumed and last_pan_rect is not None and last_pan_rect.collidepoint(mx, my):
-                    pan_mode = not pan_mode
-                    ui_sound.play_click()
-                    consumed = True
-                if not consumed and pan_mode and dragging_color is None:
-                    rects_check = layout_cell_rects()
-                    for p in range(2):
-                        for ci in range(3):
-                            x, y, w, h = rects_check[p][ci]
-                            if x <= mx <= x + w and y <= my <= y + h:
-                                pan_start = (p, ci, mx, my, view_offsets[p][ci][0], view_offsets[p][ci][1])
-                                consumed = True
-                                break
-                        if pan_start is not None:
-                            break
                 if not consumed and state.phase == PHASE_CONFIRM and last_phase0_rects:
                     bid = hit_button(last_phase0_rects, mx, my)
                     if bid == "a" and apply_phase_0_choice(state, "a"):
@@ -188,7 +167,7 @@ def main():
                         ui_sound.play_undo()
                         message = "已撤回一步"
                         consumed = True
-                    elif bid in ("black", "red", "blue", "green") and state.pool(state.current_player).get(bid, 0) > 0 and not pan_mode:
+                    elif bid in ("black", "red", "blue", "green") and state.pool(state.current_player).get(bid, 0) > 0:
                         dragging_color = bid
                         consumed = True
                 if not consumed and state.phase == PHASE_ACTION and last_phase3_rects:
@@ -405,7 +384,6 @@ def main():
             last_phase3_rects = []
 
         last_rules_rect = draw_rules_button(screen)
-        last_pan_rect = draw_pan_mode_button(screen, pan_mode)
 
         if show_rules:
             last_rules_close_rect = draw_rules_overlay(screen)

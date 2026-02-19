@@ -17,16 +17,30 @@ CHOICE_EXTRA_ATTACK = "c" # 本回合可进攻 x 次
 
 INITIAL_HP = 20
 INITIAL_POOL = {ATOM_BLACK: 7, ATOM_RED: 1, ATOM_BLUE: 1, ATOM_GREEN: 1}
-DEFAULT_GRID_ROWS = 5
-DEFAULT_GRID_COLS = 6
 
 
 def make_initial_pool() -> Dict[str, int]:
     return dict(INITIAL_POOL)
 
 
-def make_cells(rows: int = DEFAULT_GRID_ROWS, cols: int = DEFAULT_GRID_COLS) -> List[Cell]:
-    return [Cell(rows, cols) for _ in range(3)]
+def make_cells() -> List[Cell]:
+    from src.config import (
+        DEFAULT_GRID_ROWS,
+        DEFAULT_GRID_COLS,
+        GRID_CENTER_R,
+        GRID_CENTER_C,
+        HEX_RADIUS,
+    )
+    return [
+        Cell(
+            DEFAULT_GRID_ROWS,
+            DEFAULT_GRID_COLS,
+            center_r=GRID_CENTER_R,
+            center_c=GRID_CENTER_C,
+            hex_radius=HEX_RADIUS,
+        )
+        for _ in range(3)
+    ]
 
 
 class GameState:

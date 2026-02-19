@@ -4,7 +4,7 @@
 相邻定义：每个节点的邻居是与其最接近的六个节点（即几何距离为 1 的格点）。
 """
 import math
-from typing import Set, Tuple, List
+from typing import Set, Tuple, List, Optional
 
 from src.config import TRI_HEIGHT, TRI_SIDE
 
@@ -72,15 +72,40 @@ def horizontal_distance_units(points: Set[GridPoint]) -> float:
     return float(max(xs) - min(xs))
 
 
+def hex_distance(r: int, c: int, center_r: int, center_c: int) -> int:
+    """
+    轴向坐标 (r,c) 下的六边形距离（到中心 (center_r, center_c) 的步数）。
+    用于限定可放置区域为正六边形。
+    """
+    dr = r - center_r
+    dc = c - center_c
+    return (abs(dr) + abs(dc) + abs(dr + dc)) // 2
+
+
+def in_hexagon(r: int, c: int, center_r: int, center_c: int, radius: int) -> bool:
+    """(r, c) 是否在以 (center_r, center_c) 为圆心、半径为 radius 的正六边形内（含边界）。"""
+    return hex_distance(r, c, center_r, center_c) <= radius
+
+
 class TriangleGrid:
     """
     正三角形网格的辅助类：生成指定范围内的格点、邻接、距离。
-    不持有原子状态，仅几何。
+    支持“正六边形”区域：仅六边形内的格点可放置，all_points 仅含六边形内点。
     """
 
-    def __init__(self, rows: int, cols: int):
+    def __init__(
+        self,
+        rows: int,
+        cols: int,
+        center_r: Optional[int] = None,
+        center_c: Optional[int] = None,
+        hex_radius: Optional[int] = None,
+    ):
         self.rows = rows
         self.cols = cols
+        self.center_r = center_r if center_r is not None else rows // 2
+        self.center_c = center_c if center_c is not None else cols // 2
+        self.hex_radius = hex_radius
         self._points: List[GridPoint] = []
         self._rebuild()
 
@@ -88,7 +113,10 @@ class TriangleGrid:
         self._points = []
         for r in range(self.rows):
             for c in range(self.cols):
-                self._points.append((r, c))
+                if self.hex_radius is None or in_hexagon(
+                    r, c, self.center_r, self.center_c, self.hex_radius
+                ):
+                    self._points.append((r, c))
 
     def all_points(self) -> List[GridPoint]:
         return list(self._points)
@@ -96,14 +124,19 @@ class TriangleGrid:
     def neighbors_of(self, r: int, c: int) -> List[GridPoint]:
         """
         返回在网格范围内、与该节点几何距离为 1 的格点（即与其最接近的节点，最多 6 个）。
+        仅返回也在 in_bounds 内的邻居（六边形时仅含六边形内）。
         """
         out = []
         here = (r, c)
         for nr, nc in neighbors(r, c):
-            if 0 <= nr < self.rows and 0 <= nc < self.cols:
+            if self.in_bounds(nr, nc):
                 if abs(distance_between(here, (nr, nc)) - 1.0) < _DIST_ONE_TOL:
                     out.append((nr, nc))
         return out
 
     def in_bounds(self, r: int, c: int) -> bool:
-        return 0 <= r < self.rows and 0 <= c < self.cols
+        if r < 0 or r >= self.rows or c < 0 or c >= self.cols:
+            return False
+        if self.hex_radius is None:
+            return True
+        return in_hexagon(r, c, self.center_r, self.center_c, self.hex_radius)

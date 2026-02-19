@@ -16,10 +16,22 @@ COLORS = (ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN)
 
 
 class Cell:
-    """一个格子：正三角形网格上的原子排布。"""
+    """一个格子：正三角形网格上的原子排布。支持正六边形区域（hex_radius）。"""
 
-    def __init__(self, rows: int = 5, cols: int = 6):
-        self.grid = TriangleGrid(rows, cols)
+    def __init__(
+        self,
+        rows: int,
+        cols: int,
+        center_r: Optional[int] = None,
+        center_c: Optional[int] = None,
+        hex_radius: Optional[int] = None,
+    ):
+        self.grid = TriangleGrid(
+            rows, cols,
+            center_r=center_r,
+            center_c=center_c,
+            hex_radius=hex_radius,
+        )
         # 格点 -> 颜色
         self._atoms: Dict[GridPoint, str] = {}
 

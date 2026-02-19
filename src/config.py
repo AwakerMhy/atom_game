@@ -30,9 +30,20 @@ COLORS = {
     "ui_accent": (120, 180, 220),
 }
 
-# 单格网格显示用：每格默认行列数（可调）
-DEFAULT_GRID_ROWS = 5
-DEFAULT_GRID_COLS = 6
+# 单格网格：大正六边形，中心向四周
+# 背板矩形边长（格点索引 0..size-1）
+DEFAULT_GRID_SIZE = 41
+DEFAULT_GRID_ROWS = DEFAULT_GRID_SIZE
+DEFAULT_GRID_COLS = DEFAULT_GRID_SIZE
+# 正六边形半径（从中心算起的“环”数，半径内为可放置区域）
+HEX_RADIUS = 18
+GRID_CENTER_R = DEFAULT_GRID_SIZE // 2
+GRID_CENTER_C = DEFAULT_GRID_SIZE // 2
+# 每格视窗显示的网格行列数（固定三角形边长时可见窗口）
+VISIBLE_GRID_ROWS = 14
+VISIBLE_GRID_COLS = 14
+# 三角形边长 = 格子边长的 1/4（用于 scale）
+CELL_SIDE_FOR_SCALE = 200
 
 # 中文字体：优先使用系统支持的 CJK 字体，避免中文显示为方框
 FONT_NAMES_CJK = [
