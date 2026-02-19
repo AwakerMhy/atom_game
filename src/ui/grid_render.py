@@ -19,23 +19,20 @@ ATOM_COLOR_KEYS = {
 
 
 def _grid_transform(
-    rect: Tuple[int, int, int, int], rows: int, cols: int
+    rect: Tuple[int, int, int, int], rows: int, cols: int, view_offset_px: Tuple[float, float] = (0.0, 0.0)
 ) -> Tuple[float, float, float, float]:
     """
-    计算将几何坐标 (x, y) 映射到 rect 内像素的 scale 和偏移。
-    几何范围：x in [0, cols+0.5], y in [0, rows * TRI_HEIGHT]。
-    返回 (scale, offset_x, offset_y, origin_x_per_unit, origin_y_per_unit) 简化起见只返回 scale, ox, oy。
+    计算将几何坐标映射到 rect 内像素的 scale 和偏移。
+    view_offset_px: (pan_x, pan_y) 像素，拖动视角时的平移。
     """
     rw, rh = rect[2], rect[3]
-    # 几何宽高
     gw = cols + 0.5
     gh = rows * TRI_HEIGHT
     scale = min(rw / gw, rh / gh)
-    # 居中
     sw = gw * scale
     sh = gh * scale
-    ox = rect[0] + (rw - sw) / 2
-    oy = rect[1] + (rh - sh) / 2
+    ox = rect[0] + (rw - sw) / 2 + view_offset_px[0]
+    oy = rect[1] + (rh - sh) / 2 + view_offset_px[1]
     return scale, ox, oy
 
 
@@ -52,9 +49,10 @@ def screen_to_grid(
     cols: int,
     screen_x: float,
     screen_y: float,
+    view_offset_px: Tuple[float, float] = (0.0, 0.0),
 ) -> Optional[Tuple[int, int]]:
     """将屏幕坐标转换为格点 (r, c)，若不在格点附近则返回 None。"""
-    scale, ox, oy = _grid_transform(cell_rect, rows, cols)
+    scale, ox, oy = _grid_transform(cell_rect, rows, cols, view_offset_px)
     # 反算：screen = ox + x*scale, oy + y*scale => x = (sx - ox)/scale, y = (sy - oy)/scale
     x = (screen_x - ox) / scale
     y = (screen_y - oy) / scale
@@ -73,13 +71,13 @@ def draw_cell_grid(
     rows: int = DEFAULT_GRID_ROWS,
     cols: int = DEFAULT_GRID_COLS,
     highlight_points: Optional[Set[GridPoint]] = None,
+    view_offset_px: Tuple[float, float] = (0.0, 0.0),
 ) -> None:
     """
     在 cell_rect 内绘制正三角形网格、格点与原子。
-    cell_atoms: (row, col) -> 颜色名 "black"|"red"|"blue"|"green"
-    highlight_points: 本回合新放的格点，绘制高亮环。
+    view_offset_px: 视角平移（像素），用于拖动视角。
     """
-    scale, ox, oy = _grid_transform(cell_rect, rows, cols)
+    scale, ox, oy = _grid_transform(cell_rect, rows, cols, view_offset_px)
 
     # 绘制边：仅连接“与其最接近的节点”（几何距离为 1），与 triangle 中邻居定义一致，不画错误对角线
     # 每条边只画一次：(r,c) -> (nr,nc) 仅当 (nr,nc) > (r,c) 字典序
@@ -104,8 +102,8 @@ def draw_cell_grid(
             pos = _to_screen(r, c, scale, ox, oy)
             pygame.draw.circle(screen, COLORS["grid_point"], (int(pos[0]), int(pos[1])), radius)
 
-    # 原子（大一点，带边框）；本回合新放的高亮
-    atom_radius = max(4, int(scale * 0.4))
+    # 原子（较小，带边框）；本回合新放的高亮
+    atom_radius = max(3, int(scale * 0.26))
     highlight_set = highlight_points or set()
     for (r, c), color in cell_atoms.items():
         if 0 <= r < rows and 0 <= c < cols:

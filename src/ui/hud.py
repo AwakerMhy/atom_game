@@ -23,38 +23,94 @@ RULES_OVERLAY_LINES = [
 ]
 
 
+# 原子颜色（与 config 一致）
+_POOL_COLORS = [
+    ("black", COLORS.get("atom_black", (40, 42, 48))),
+    ("red", COLORS.get("atom_red", (200, 70, 70))),
+    ("blue", COLORS.get("atom_blue", (70, 120, 200))),
+    ("green", COLORS.get("atom_green", (70, 160, 100))),
+]
+_HP_BAR_W = 120
+_HP_BAR_H = 14
+_HP_BAR_MAX = 20  # 显示参考上限（超过也显示满条后再延伸或数字）
+_PANEL_PAD = 10
+_ATOM_DOT_R = 6
+
+
+def _draw_player_panel(
+    screen: pygame.Surface,
+    player: int,
+    hp: int,
+    pool: dict,
+    x: int,
+    y: int,
+    is_current: bool,
+) -> None:
+    """绘制单方玩家信息面板：HP 条 + 原子数量图形。"""
+    font = get_font(16)
+    font_s = get_font(14)
+    # 宽度：HP 条 + 4 个原子（圆+数字）
+    panel_w = _HP_BAR_W + 4 * (_ATOM_DOT_R * 2 + 6 + 16) + _PANEL_PAD * 2
+    panel_h = _HP_BAR_H + _PANEL_PAD * 2 + 22
+    panel = pygame.Rect(x, y, panel_w, panel_h)
+    bg = (42, 48, 56) if not is_current else (50, 58, 70)
+    pygame.draw.rect(screen, bg, panel)
+    pygame.draw.rect(screen, COLORS["ui_accent"] if is_current else (70, 78, 90), panel, 2)
+    # 标题
+    title = font_s.render(f"P{player}", True, COLORS["ui_text"])
+    screen.blit(title, (x + _PANEL_PAD, y + 4))
+    # HP 条
+    bar_x = x + _PANEL_PAD
+    bar_y = y + 22
+    pygame.draw.rect(screen, (40, 35, 35), (bar_x, bar_y, _HP_BAR_W, _HP_BAR_H))
+    fill_w = min(_HP_BAR_W, max(0, int(_HP_BAR_W * hp / max(1, _HP_BAR_MAX))))
+    if fill_w > 0:
+        hp_color = (120, 200, 100) if hp >= _HP_BAR_MAX else (200, 80, 80)
+        pygame.draw.rect(screen, hp_color, (bar_x, bar_y, fill_w, _HP_BAR_H))
+    pygame.draw.rect(screen, (60, 65, 75), (bar_x, bar_y, _HP_BAR_W, _HP_BAR_H), 1)
+    hp_text = font_s.render(str(hp), True, (255, 255, 255))
+    screen.blit(hp_text, (bar_x + _HP_BAR_W - 22, bar_y - 1))
+    # 原子：小圆点 + 数量
+    cx = bar_x + _HP_BAR_W + _PANEL_PAD
+    for key, rgb in _POOL_COLORS:
+        n = pool.get(key, 0)
+        pygame.draw.circle(screen, rgb, (int(cx + _ATOM_DOT_R), int(bar_y + _HP_BAR_H // 2)), _ATOM_DOT_R)
+        pygame.draw.circle(screen, (80, 85, 95), (int(cx + _ATOM_DOT_R), int(bar_y + _HP_BAR_H // 2)), _ATOM_DOT_R, 1)
+        screen.blit(font_s.render(str(n), True, COLORS["ui_text"]), (cx + _ATOM_DOT_R * 2 + 2, bar_y - 2))
+        cx += _ATOM_DOT_R * 2 + 6 + 14
+
+
 def draw_hud(
     screen: pygame.Surface,
     state: GameState,
     message: str = "",
 ) -> None:
-    """绘制生命、原子池、阶段与 message。"""
-    font = get_font(22)
-    # 玩家 1（上方）
-    t = font.render(
-        f"P1 HP: {state.hp[1]}  |  黑:{state.pool(1).get('black',0)} 红:{state.pool(1).get('red',0)} 蓝:{state.pool(1).get('blue',0)} 绿:{state.pool(1).get('green',0)}",
-        True, COLORS["ui_text"]
+    """绘制生命、原子池（图形面板）、阶段与 message。"""
+    cur = state.current_player
+    # 玩家 1 面板（上方偏左）
+    _draw_player_panel(
+        screen, 1, state.hp[1], state.pool(1),
+        x=20, y=12, is_current=(cur == 1),
     )
-    screen.blit(t, (20, 8))
-    # 玩家 0（下方）
-    t = font.render(
-        f"P0 HP: {state.hp[0]}  |  黑:{state.pool(0).get('black',0)} 红:{state.pool(0).get('red',0)} 蓝:{state.pool(0).get('blue',0)} 绿:{state.pool(0).get('green',0)}",
-        True, COLORS["ui_text"]
+    # 玩家 0 面板（下方偏左）
+    _draw_player_panel(
+        screen, 0, state.hp[0], state.pool(0),
+        x=20, y=SCREEN_HEIGHT - 12 - _HP_BAR_H - _PANEL_PAD * 2 - 22,
+        is_current=(cur == 0),
     )
-    screen.blit(t, (20, SCREEN_HEIGHT - 28))
-    # 当前玩家与阶段
+    # 当前阶段与提示（屏幕中下）
+    font = get_font(20)
     phase_names = {
         PHASE_CONFIRM: "阶段0-选效果",
         PHASE_DRAW: "阶段1-抽原子",
         PHASE_PLACE: "阶段2-排布",
         PHASE_ACTION: "阶段3-动作",
     }
-    cur = state.current_player
-    t = font.render(f"当前: P{cur}  |  {phase_names.get(state.phase, '')}", True, COLORS["ui_accent"])
-    screen.blit(t, (20, SCREEN_HEIGHT // 2 - 20))
+    t = font.render(f"当前: P{cur}  {phase_names.get(state.phase, '')}", True, COLORS["ui_accent"])
+    screen.blit(t, (SCREEN_WIDTH // 2 - t.get_width() // 2, SCREEN_HEIGHT - 52))
     if message:
-        t = font.render(message, True, (255, 220, 100))
-        screen.blit(t, (20, SCREEN_HEIGHT // 2 + 8))
+        t2 = font.render(message[:50], True, (255, 220, 100))
+        screen.blit(t2, (SCREEN_WIDTH // 2 - t2.get_width() // 2, SCREEN_HEIGHT - 28))
 
 
 def draw_phase_0_prompt(screen: pygame.Surface) -> None:

@@ -195,5 +195,5 @@ def apply_effect_green(state: GameState, player: int, cell_index: int, r: int, c
         return False
     y = cell.count_black_neighbors(r, c)
     cell.remove(r, c)
-    state.hp[player] = min(state.hp[player] + y, 20)  # 可选：不设上限则去掉 min
+    state.hp[player] = state.hp[player] + y  # 血量满时也可继续加血
     return True

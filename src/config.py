@@ -18,6 +18,8 @@ TRI_HEIGHT = math.sqrt(3) / 2
 # 颜色（便于后续替换为主题）
 COLORS = {
     "background": (24, 28, 32),
+    "cell_bg": (245, 235, 210),  # 米色格子内背景
+    "cell_frame": (80, 70, 60),
     "grid_line": (60, 70, 85),
     "grid_point": (90, 100, 120),
     "atom_black": (40, 42, 48),

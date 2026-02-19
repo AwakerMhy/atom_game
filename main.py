@@ -30,6 +30,7 @@ from src.ui.buttons import (
     draw_atom_pool_and_end,
     draw_phase3_buttons,
     draw_rules_button,
+    draw_pan_mode_button,
     draw_dragging_ghost,
     hit_button,
 )
@@ -63,6 +64,11 @@ def main():
     last_phase3_rects = []
     last_rules_rect = None
     last_rules_close_rect = None
+    last_pan_rect = None
+    # 每格视角偏移 (像素)，用于拖动视角
+    view_offsets = [[(0.0, 0.0) for _ in range(3)] for _ in range(2)]
+    pan_mode = False
+    pan_start = None  # (player, cell_index, start_x, start_y, start_off_x, start_off_y)
 
     def reset_action():
         nonlocal action_substate, attack_my_cell, attack_enemy_cell, attack_components, attack_extra_pending, effect_red_pending
@@ -86,12 +92,17 @@ def main():
 
             if event.type == pygame.MOUSEMOTION:
                 mouse_pos = event.pos
+                if pan_start is not None:
+                    p, ci, sx, sy, ox, oy = pan_start
+                    view_offsets[p][ci] = (ox + (mouse_pos[0] - sx), oy + (mouse_pos[1] - sy))
 
             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-                if dragging_color is not None:
+                if pan_start is not None:
+                    pan_start = None
+                elif dragging_color is not None:
                     mx, my = event.pos[0], event.pos[1]
                     cur = state.current_player
-                    hit = hit_test_cell(cell_rects, cur, mx, my)
+                    hit = hit_test_cell(cell_rects, cur, mx, my, view_offsets)
                     if hit is not None:
                         _, cell_index, (r, c) = hit
                         ok, msg = validate_place(state, cell_index, r, c, dragging_color)
@@ -117,26 +128,47 @@ def main():
                         state = GameState()
                         reset_action()
                         place_history.clear()
+                        ui_sound.play_click()
                         message = "新对局开始，P0 先手，请点击下方按钮选择效果"
                         consumed = True
                     elif r2.collidepoint(mx, my):
+                        ui_sound.play_click()
                         running = False
                         consumed = True
                 if not consumed and last_rules_rect is not None and last_rules_rect.collidepoint(mx, my):
                     show_rules = not show_rules
+                    ui_sound.play_click()
                     consumed = True
+                if not consumed and last_pan_rect is not None and last_pan_rect.collidepoint(mx, my):
+                    pan_mode = not pan_mode
+                    ui_sound.play_click()
+                    consumed = True
+                if not consumed and pan_mode and dragging_color is None:
+                    rects_check = layout_cell_rects()
+                    for p in range(2):
+                        for ci in range(3):
+                            x, y, w, h = rects_check[p][ci]
+                            if x <= mx <= x + w and y <= my <= y + h:
+                                pan_start = (p, ci, mx, my, view_offsets[p][ci][0], view_offsets[p][ci][1])
+                                consumed = True
+                                break
+                        if pan_start is not None:
+                            break
                 if not consumed and state.phase == PHASE_CONFIRM and last_phase0_rects:
                     bid = hit_button(last_phase0_rects, mx, my)
                     if bid == "a" and apply_phase_0_choice(state, "a"):
                         advance_to_phase_1(state)
+                        ui_sound.play_click()
                         message = "已选多抽原子，已抽并进入排布"
                         consumed = True
                     elif bid == "b" and apply_phase_0_choice(state, "b"):
                         advance_to_phase_1(state)
+                        ui_sound.play_click()
                         message = "已选多放置，进入排布"
                         consumed = True
                     elif bid == "c" and apply_phase_0_choice(state, "c"):
                         advance_to_phase_1(state)
+                        ui_sound.play_click()
                         message = "已选多进攻，进入排布"
                         consumed = True
                 if not consumed and state.phase == PHASE_PLACE and last_atom_pool_rects:
@@ -145,6 +177,7 @@ def main():
                         end_place_phase(state)
                         reset_action()
                         place_history.clear()
+                        ui_sound.play_click()
                         message = "进入动作阶段；点「结束回合」结束"
                         consumed = True
                     elif bid == "undo" and place_history:
@@ -152,9 +185,10 @@ def main():
                         state.cells[state.current_player][cell_index].remove(r, c)
                         state.pool(state.current_player)[color] = state.pool(state.current_player).get(color, 0) + 1
                         state.turn_placed_count -= 1
+                        ui_sound.play_undo()
                         message = "已撤回一步"
                         consumed = True
-                    elif bid in ("black", "red", "blue", "green") and state.pool(state.current_player).get(bid, 0) > 0:
+                    elif bid in ("black", "red", "blue", "green") and state.pool(state.current_player).get(bid, 0) > 0 and not pan_mode:
                         dragging_color = bid
                         consumed = True
                 if not consumed and state.phase == PHASE_ACTION and last_phase3_rects:
@@ -167,6 +201,7 @@ def main():
                         consumed = True
                     elif bid == "cancel":
                         reset_action()
+                        ui_sound.play_click()
                         message = "已取消"
                         consumed = True
                 if not consumed:
@@ -180,7 +215,7 @@ def main():
                         if action_substate == "effect_red_pick" and effect_red_pending is not None:
                             att, ci, rr, cc, y, picked = effect_red_pending
                             def_player = state.opponent(att)
-                            hit = hit_test_cell(cell_rects, def_player, mx, my)
+                            hit = hit_test_cell(cell_rects, def_player, mx, my, view_offsets)
                             if hit is not None:
                                 _, cell_i, pt = hit
                                 cell = state.cells[def_player][cell_i]
@@ -196,7 +231,7 @@ def main():
                                             message = f"已选 {len(picked)}/{y} 个要破坏的原子"
 
                         elif action_substate == "attack_choose_component" and attack_components is not None and attack_my_cell is not None and attack_enemy_cell is not None:
-                            hit = hit_test_cell(cell_rects, opp, mx, my)
+                            hit = hit_test_cell(cell_rects, opp, mx, my, view_offsets)
                             if hit is not None:
                                 _, cell_i, pt = hit
                                 if cell_i != attack_enemy_cell[1]:
@@ -216,7 +251,7 @@ def main():
 
                         elif action_substate == "attack_choose_extra" and attack_extra_pending is not None and attack_enemy_cell is not None:
                             extra_count, picked = attack_extra_pending
-                            hit = hit_test_cell(cell_rects, opp, mx, my)
+                            hit = hit_test_cell(cell_rects, opp, mx, my, view_offsets)
                             if hit is not None:
                                 _, cell_i, pt = hit
                                 if cell_i != attack_enemy_cell[1]:
@@ -244,7 +279,7 @@ def main():
                                         message = "该格点无原子"
 
                         elif action_substate == "attack_choose_black" and attack_my_cell is not None and attack_enemy_cell is not None:
-                            hit = hit_test_cell(cell_rects, opp, mx, my)
+                            hit = hit_test_cell(cell_rects, opp, mx, my, view_offsets)
                             if hit is not None:
                                 _, cell_i, pt = hit
                                 cell = state.cells[opp][cell_i]
@@ -274,7 +309,7 @@ def main():
                                     message = "请点击被攻击格内的一个黑原子"
 
                         elif action_substate == "attack_my" and attack_my_cell is not None:
-                            hit = hit_test_cell(cell_rects, opp, mx, my)
+                            hit = hit_test_cell(cell_rects, opp, mx, my, view_offsets)
                             if hit is not None:
                                 _, cell_i, _ = hit
                                 defender_cell = state.cells[opp][cell_i]
@@ -298,7 +333,7 @@ def main():
                                     message = f"直接攻击，造成 {dmg} 点伤害"
 
                         elif action_substate == "idle":
-                            hit_my = hit_test_cell(cell_rects, cur, mx, my)
+                            hit_my = hit_test_cell(cell_rects, cur, mx, my, view_offsets)
                             if hit_my is not None:
                                 _, cell_i, (r, c) = hit_my
                                 cell = state.cells[cur][cell_i]
@@ -337,6 +372,7 @@ def main():
             highlight_cell=highlight,
             current_player=state.current_player if state.phase == PHASE_PLACE else None,
             highlight_atoms_by_cell=highlight_atoms_by_cell if state.phase == PHASE_PLACE else None,
+            view_offsets=view_offsets,
         )
         draw_hud(screen, state, message)
 
@@ -369,6 +405,7 @@ def main():
             last_phase3_rects = []
 
         last_rules_rect = draw_rules_button(screen)
+        last_pan_rect = draw_pan_mode_button(screen, pan_mode)
 
         if show_rules:
             last_rules_close_rect = draw_rules_overlay(screen)

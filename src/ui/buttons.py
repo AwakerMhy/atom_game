@@ -112,16 +112,23 @@ def draw_rules_button(screen: pygame.Surface) -> pygame.Rect:
     return r
 
 
+def draw_pan_mode_button(screen: pygame.Surface, pan_mode: bool) -> pygame.Rect:
+    """绘制「拖动视角」切换按钮，返回其 rect。"""
+    r = pygame.Rect(SCREEN_WIDTH - 200, SCREEN_HEIGHT - 32, 90, 28)
+    label = "视角开" if pan_mode else "拖动视角"
+    _draw_button(screen, r, label, 18)
+    return r
+
+
 def draw_dragging_ghost(screen: pygame.Surface, color: str, mouse_pos: Tuple[int, int]) -> None:
-    """拖动时在鼠标位置绘制半透明原子。"""
+    """拖动时在鼠标位置绘制半透明原子（无外框）。"""
     col_name = ATOM_BUTTON_COLORS.get(color, ("atom_black", ""))[0]
     rgb = COLORS.get(col_name, (80, 80, 80))
-    r = 20
-    s = pygame.Surface((r * 2, r * 2))
-    s.set_alpha(200)
-    pygame.draw.circle(s, rgb, (r, r), r - 2)
-    screen.blit(s, (mouse_pos[0] - r, mouse_pos[1] - r))
-    pygame.draw.circle(screen, COLORS["ui_accent"], mouse_pos, r, 2)
+    r = 14
+    s = pygame.Surface((r * 2 + 4, r * 2 + 4))
+    s.set_alpha(220)
+    pygame.draw.circle(s, rgb, (r + 2, r + 2), r)
+    screen.blit(s, (mouse_pos[0] - r - 2, mouse_pos[1] - r - 2))
 
 
 def hit_button(rects: List[Tuple[pygame.Rect, str]], x: int, y: int) -> Optional[str]:
