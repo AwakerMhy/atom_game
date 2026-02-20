@@ -5,7 +5,7 @@ import math
 import pygame
 
 # 版本（发布时在此更新）
-VERSION = "0.1.1"
+VERSION = "1.4.0"
 
 # 窗口
 TITLE = "Atom Game"
@@ -35,16 +35,18 @@ COLORS = {
 
 # 单格网格：大正六边形，中心向四周
 # 背板矩形边长（格点索引 0..size-1）
-DEFAULT_GRID_SIZE = 41
+DEFAULT_GRID_SIZE = 100
 DEFAULT_GRID_ROWS = DEFAULT_GRID_SIZE
 DEFAULT_GRID_COLS = DEFAULT_GRID_SIZE
-# 正六边形半径（从中心算起的“环”数，半径内为可放置区域）
-HEX_RADIUS = 18
+
+# 可放置原子与米色/可见范围（统一由六边形参数决定）
+# 六边形半径（每边 2*HEX_RADIUS+1 个节点）
+HEX_RADIUS = 15
 GRID_CENTER_R = DEFAULT_GRID_SIZE // 2
 GRID_CENTER_C = DEFAULT_GRID_SIZE // 2
-# 每格视窗显示的网格行列数（固定三角形边长时可见窗口）
-VISIBLE_GRID_ROWS = 14
-VISIBLE_GRID_COLS = 14
+# 可见窗口与六边形范围一致：由 HEX_RADIUS 推导，无需单独配置
+VISIBLE_GRID_ROWS = 2 * HEX_RADIUS + 1
+VISIBLE_GRID_COLS = 2 * HEX_RADIUS + 1
 # 三角形边长 = 格子边长的 1/4（用于 scale）
 CELL_SIDE_FOR_SCALE = 200
 
