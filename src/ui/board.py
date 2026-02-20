@@ -16,7 +16,7 @@ from src.config import (
     get_font,
 )
 from src.ui.grid_render import draw_cell_grid, screen_to_grid, hexagon_screen_polygon
-from src.grid.cell import Cell
+from src.grid.cell import Cell, ATOM_RED, ATOM_BLUE, ATOM_GREEN
 from src.grid.triangle import GridPoint
 from src.game import combat
 
@@ -25,8 +25,8 @@ from src.game import combat
 CELL_W = 220
 CELL_H = 200
 GAP = 32
-# 双方格子上下间距（拉大两行之间距离）
-ROW_GAP = 80
+# 双方格子上下间距（留出 ATK/DEF 与红蓝绿效果两行文字）
+ROW_GAP = 90
 # 场地整体向右偏移（为左侧竖排按钮留空）
 BOARD_OFFSET_X = 80
 # 格子边框宽度（外框）
@@ -125,14 +125,39 @@ def draw_board(
             screen.set_clip(old_clip)
             if highlight_cell is not None and highlight_cell == (player, cell_index):
                 pygame.draw.rect(screen, (255, 200, 80), rect, 3)
-            # 格子下方显示 ATK / DEF
+            # 格子下方显示 ATK/DEF 及红蓝绿效果
             atk = combat.attack_power(cell)
             def_ = combat.defense_power(cell)
+            red_y = blue_y = green_y = 0
+            for (r, c), color in cell.all_atoms().items():
+                y = cell.count_black_neighbors(r, c)
+                if color == ATOM_RED:
+                    red_y += y
+                elif color == ATOM_BLUE:
+                    blue_y += y
+                elif color == ATOM_GREEN:
+                    green_y += y
             font = get_font(14)
             text = font.render(f"ATK: {atk:.1f}  DEF: {def_:.1f}", True, COLORS["ui_text"])
             tx = rect[0] + (rect[2] - text.get_width()) // 2
             ty = rect[1] + rect[3] + 4
             screen.blit(text, (tx, ty))
+            parts = []
+            if red_y > 0:
+                parts.append(f"红破{red_y}")
+            if blue_y > 0:
+                parts.append(f"蓝+{blue_y}黑")
+            if green_y > 0:
+                parts.append(f"绿+{green_y}血")
+            if parts:
+                effect_str = "  ".join(parts)
+                for font_size in (12, 11, 10):
+                    font_sm = get_font(font_size)
+                    effect_text = font_sm.render(effect_str, True, COLORS["ui_text"])
+                    if effect_text.get_width() <= rect[2]:
+                        break
+                tx2 = rect[0] + (rect[2] - effect_text.get_width()) // 2
+                screen.blit(effect_text, (tx2, ty + 18))
     return rects
 
 
