@@ -18,6 +18,10 @@ class GameConfig:
     base_place_limit: int
     # 抽牌权重 [黑, 红, 蓝, 绿]，整数，按权重随机
     draw_weights: List[int]
+    # 进攻时被破坏的黑原子由系统随机选择；红效果破坏目标也随机
+    random_destroy_on_attack: bool = False
+    # 放置黑原子时由系统随机选在已有原子的邻格上
+    random_place_black_on_neighbor: bool = False
 
 
 def default_config() -> GameConfig:
@@ -28,7 +32,9 @@ def default_config() -> GameConfig:
             ATOM_BLUE: 1,
             ATOM_GREEN: 1,
         },
-        base_draw_count=5,
-        base_place_limit=4,
+        base_draw_count=10,
+        base_place_limit=10,
         draw_weights=[3, 1, 1, 1],  # 黑 3 : 红 1 : 蓝 1 : 绿 1
+        random_destroy_on_attack=True,
+        random_place_black_on_neighbor=True,
     )

@@ -69,6 +69,46 @@ def remove_components_except(cell: Cell, to_keep: Set[GridPoint]) -> None:
             cell.remove(r, c)
 
 
+def remove_component(cell: Cell, component: Set[GridPoint]) -> None:
+    """移除该连通分量上的所有原子（红效果选到无黑子集时整块破坏）。"""
+    for (r, c) in component:
+        cell.remove(r, c)
+
+
+def remove_black_atoms_except(cell: Cell, to_keep: Set[GridPoint]) -> None:
+    """仅移除黑原子：保留 to_keep 中的黑原子，移除其余格点上的黑原子。"""
+    blacks = cell.black_points()
+    for pt in blacks:
+        if pt not in to_keep:
+            cell.remove(pt[0], pt[1])
+
+
+def clear_cell_if_no_black(cell: Cell) -> None:
+    """若格子内无黑原子则清空整格（攻击/红效果结算后调用）。"""
+    if not cell.has_black() and not cell.is_empty():
+        for p in list(cell.all_atoms().keys()):
+            cell.remove(p[0], p[1])
+
+
+def remove_components_without_black_and_return_rest(cell: Cell) -> List[Set[GridPoint]]:
+    """
+    移除所有不包含黑原子的连通分量；返回剩余分量（每个都含黑）。
+    若剩余 0 或 1 个则无需被攻击方选择；2+ 个时需选择保留哪一个。
+    """
+    if cell.is_empty():
+        return []
+    components = cell.connected_components()
+    blacks = cell.black_points()
+    remaining: List[Set[GridPoint]] = []
+    for comp in components:
+        if comp & blacks:
+            remaining.append(comp)
+        else:
+            for (r, c) in comp:
+                cell.remove(r, c)
+    return remaining
+
+
 def resolve_direct_attack(cell: Cell) -> int:
     """直接攻击玩家时造成的伤害 = 进攻格攻击力（整数）。"""
     return int(attack_power(cell))
@@ -107,36 +147,50 @@ def apply_effect_red(
     cell.remove(r, c)
     for (pi, ci, pt) in atoms_to_destroy:
         def_cells[ci].remove(pt[0], pt[1])
-    for ci, cell_def in enumerate(def_cells):
-        if not cell_def.has_black() and not cell_def.is_empty():
-            for p in list(cell_def.all_atoms().keys()):
-                cell_def.remove(p[0], p[1])
+    # 结算后：无黑则整格清空；多分量时先清掉不含黑的子集，再让被攻击方选择保留哪一子集（仅当仍剩 2+ 个子集时）
+    for cell_def in def_cells:
+        clear_cell_if_no_black(cell_def)
+    for cell_def in def_cells:
+        remove_components_without_black_and_return_rest(cell_def)
     return True
 
 
 def apply_effect_blue(state: GameState, player: int, cell_index: int, r: int, c: int) -> bool:
-    """发动蓝效果：移除己方 (cell_index, r, c) 上的蓝原子，己方获得 y 个黑原子。"""
+    """发动蓝效果：移除该蓝原子，与其相邻的黑原子在下一回合内不可被破坏。"""
     cells = state.cells[player]
     if cell_index < 0 or cell_index >= len(cells):
         return False
     cell = cells[cell_index]
     if cell.get(r, c) != ATOM_BLUE:
         return False
-    y = cell.count_black_neighbors(r, c)
+    protected = cell.black_neighbors_of(r, c)
     cell.remove(r, c)
-    state.pools[player][ATOM_BLACK] = state.pools[player].get(ATOM_BLACK, 0) + y
+    for pt in protected:
+        state.blue_protected_points[player].add((cell_index, pt))
+    state.blue_protection_until_turn[player] = state.turn_number + 1
     return True
 
 
 def apply_effect_green(state: GameState, player: int, cell_index: int, r: int, c: int) -> bool:
-    """发动绿效果：移除己方 (cell_index, r, c) 上的绿原子，己方恢复 y 点生命。"""
+    """发动绿效果（点击）：该绿原子就地变为一个黑原子，不消耗池中黑原子。"""
     cells = state.cells[player]
     if cell_index < 0 or cell_index >= len(cells):
         return False
     cell = cells[cell_index]
     if cell.get(r, c) != ATOM_GREEN:
         return False
-    y = cell.count_black_neighbors(r, c)
     cell.remove(r, c)
-    state.hp[player] = state.hp[player] + y
+    cell.place(r, c, ATOM_BLACK)
     return True
+
+
+def apply_green_end_of_turn(state: GameState, player: int) -> int:
+    """绿持续效果：回合结束时该玩家获得「己方所有绿原子邻接黑原子数」之和的黑原子。返回本次获得的数目。"""
+    total = 0
+    for cell in state.cells[player]:
+        for (r, c), color in list(cell.all_atoms().items()):
+            if color == ATOM_GREEN:
+                total += cell.count_black_neighbors(r, c)
+    if total > 0:
+        state.pools[player][ATOM_BLACK] = state.pools[player].get(ATOM_BLACK, 0) + total
+    return total

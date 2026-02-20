@@ -1,6 +1,7 @@
 """
 单格状态：格点 -> 原子颜色，放置/移除，连通性检查。
 """
+import random
 from typing import Dict, Set, List, Optional
 from collections import deque
 
@@ -118,3 +119,45 @@ class Cell:
             if (nr, nc) in blacks:
                 n += 1
         return n
+
+    def black_neighbors_of(self, r: int, c: int) -> Set[GridPoint]:
+        """与 (r,c) 相邻的黑原子格点集合。用于蓝效果保护。"""
+        blacks = self.black_points()
+        out: Set[GridPoint] = set()
+        for nr, nc in self.grid.neighbors_of(r, c):
+            if (nr, nc) in blacks:
+                out.add((nr, nc))
+        return out
+
+    def black_connected_components(self) -> List[Set[GridPoint]]:
+        """仅考虑黑原子、黑-黑相邻的连通分量。用于「选择保留哪一个黑原子连通子集」。"""
+        blacks = self.black_points()
+        if not blacks:
+            return []
+        components: List[Set[GridPoint]] = []
+        remaining = set(blacks)
+        while remaining:
+            start = remaining.pop()
+            comp = {start}
+            q = deque([start])
+            while q:
+                r, c = q.popleft()
+                for nr, nc in self.grid.neighbors_of(r, c):
+                    p = (nr, nc)
+                    if p in remaining:
+                        remaining.discard(p)
+                        comp.add(p)
+                        q.append(p)
+            components.append(comp)
+        return components
+
+    def random_empty_neighbor(self) -> Optional[GridPoint]:
+        """规则选项「黑原子随机放邻格」：在已有原子的邻格中随机选一个空位，若无则返回 None。"""
+        candidates: List[GridPoint] = []
+        for (r, c) in self._atoms:
+            for nr, nc in self.grid.neighbors_of(r, c):
+                if self.grid.in_bounds(nr, nc) and (nr, nc) not in self._atoms:
+                    candidates.append((nr, nc))
+        if not candidates:
+            return None
+        return random.choice(candidates)

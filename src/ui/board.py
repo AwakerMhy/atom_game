@@ -69,13 +69,14 @@ def draw_board(
     current_player: Optional[int] = None,
     highlight_atoms_by_cell: Optional[Dict[int, Set[GridPoint]]] = None,
     highlight_atoms_red_for_player: Optional[Tuple[int, Dict[int, Set[GridPoint]]]] = None,
+    highlight_atoms_blue_for_player: Optional[Dict[int, Dict[int, Set[GridPoint]]]] = None,
     view_offsets: Optional[List[List[Tuple[int, int]]]] = None,
     view_pan_px: Optional[List[List[Tuple[float, float]]]] = None,
     grid_scale_denom: int = 4,
 ) -> List[List[Tuple[int, int, int, int]]]:
     """
     绘制双方各 3 格，返回 layout_cell_rects() 的 rect 列表。
-    grid_scale_denom: 三角形边长与格子边长比例的分母（3~8，即 1:3 到 1:8）。
+    grid_scale_denom: 三角形边长与格子边长比例的分母（3~10，即 1:3 到 1:10）。
     """
     rects = layout_cell_rects()
     beige = COLORS.get("cell_bg", (245, 235, 210))
@@ -95,7 +96,7 @@ def draw_board(
             pan_px = default_pan
             if view_pan_px and player < len(view_pan_px) and cell_index < len(view_pan_px[player]):
                 pan_px = view_pan_px[player][cell_index]
-            # 格子内先填遮蔽色，再只画六边形区域为米色，使六边形外网格被遮住
+            # 格子内先填遮蔽色，再画完整六边形为米色；默认可见范围=整六边形，格点只画六边形内
             clip_rect = pygame.Rect(x, y, w, h)
             old_clip = screen.get_clip()
             screen.set_clip(clip_rect)
@@ -103,7 +104,7 @@ def draw_board(
             hex_poly = hexagon_screen_polygon(rect, view_origin, pan_px, grid_scale_denom=grid_scale_denom)
             pygame.draw.polygon(screen, beige, [(int(px), int(py)) for px, py in hex_poly])
             cell = cells[player][cell_index]
-            valid_points = set(cell.grid.all_points())
+            valid_points = set[GridPoint](cell.grid.all_points())
             atoms = cell.all_atoms()
             hp = None
             if current_player is not None and highlight_atoms_by_cell is not None and player == current_player:
@@ -111,6 +112,9 @@ def draw_board(
             hp_red = None
             if highlight_atoms_red_for_player is not None and player == highlight_atoms_red_for_player[0]:
                 hp_red = highlight_atoms_red_for_player[1].get(cell_index, set())
+            hp_blue = None
+            if highlight_atoms_blue_for_player is not None:
+                hp_blue = highlight_atoms_blue_for_player.get(player, {}).get(cell_index, set())
             draw_cell_grid(
                 screen,
                 cell_rect=rect,
@@ -119,6 +123,7 @@ def draw_board(
                 valid_points=valid_points,
                 highlight_points=hp,
                 highlight_points_red=hp_red,
+                highlight_points_blue=hp_blue,
                 view_pan_px=pan_px,
                 grid_scale_denom=grid_scale_denom,
             )

@@ -108,6 +108,136 @@ def draw_atom_pool_and_end(
     return out
 
 
+def draw_batch_place_button(screen: pygame.Surface) -> pygame.Rect:
+    """
+    绘制「批量放置」按钮（排布阶段且开启随机放置时显示）。
+    从池中取原子放到指定格子。放在结束排布按钮下方。
+    """
+    left_x = 24
+    end_btn_w = 160
+    total_h = 6 * (POOL_BOX_SIZE + BTN_GAP) - BTN_GAP
+    y0 = (SCREEN_HEIGHT - total_h) // 2
+    y0 += 5 * (POOL_BOX_SIZE + BTN_GAP)
+    y0 += POOL_BOX_SIZE + BTN_GAP
+    r = pygame.Rect(left_x, y0, end_btn_w, POOL_BOX_SIZE)
+    _draw_button(screen, r, "批量放置", 18)
+    return r
+
+
+# 批量放置数量滑条：0 ~ value_max
+BATCH_SLIDER_TRACK_W = 240
+BATCH_SLIDER_TRACK_H = 16
+
+# 取消按钮样式（与选格子按钮区分）
+_BTN_CANCEL_BG = (58, 52, 48)
+_BTN_CANCEL_BORDER = (160, 120, 100)
+
+
+def _draw_button_cancel(screen: pygame.Surface, rect: pygame.Rect, text: str, font_size: int = 18) -> None:
+    """绘制取消/确认类按钮，颜色与普通操作按钮区分。"""
+    pygame.draw.rect(screen, _BTN_CANCEL_BG, rect)
+    pygame.draw.rect(screen, _BTN_CANCEL_BORDER, rect, 2)
+    font = get_font(font_size)
+    t = font.render(text, True, COLORS["ui_text"])
+    tr = t.get_rect(center=rect.center)
+    screen.blit(t, tr)
+
+
+def draw_batch_place_panel(
+    screen: pygame.Surface,
+    value: int,
+    value_max: int,
+) -> Tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect]:
+    """
+    绘制批量放置面板：仅黑原子，数量用滑条选择、目标格子 1/2/3、取消。
+    返回 (格子1, 格子2, 格子3, 取消, 滑条轨道) 的 rect。value_max 为滑条最大值（池中黑原子数与剩余可放数取 min）。
+    """
+    font = get_font(18)
+    panel_w = 520
+    panel_h = 175
+    panel_pad = 28
+    cx = SCREEN_WIDTH // 2
+    cy = SCREEN_HEIGHT // 2
+    panel = pygame.Rect(cx - panel_w // 2, cy - panel_h // 2, panel_w, panel_h)
+    pygame.draw.rect(screen, (40, 48, 58), panel)
+    pygame.draw.rect(screen, COLORS["ui_accent"], panel, 2)
+    title = font.render("批量放置黑原子：拖动滑条选数量，点击目标格子", True, COLORS["ui_text"])
+    if title.get_width() > panel.w - 2 * panel_pad:
+        title = font.render("批量放置黑原子 · 滑条选数量，点击目标格子", True, COLORS["ui_text"])
+    screen.blit(title, (panel.x + (panel.w - title.get_width()) // 2, panel.y + 14))
+    num_label = font.render("数量:", True, COLORS["ui_text"])
+    screen.blit(num_label, (panel.x + panel_pad, panel.y + 48))
+    # 滑条轨道（左侧留出「数量」标签位）
+    track_x = panel.x + panel_pad + 52
+    track_y = panel.y + 46
+    track_rect = pygame.Rect(track_x, track_y, BATCH_SLIDER_TRACK_W, BATCH_SLIDER_TRACK_H)
+    pygame.draw.rect(screen, (50, 58, 70), track_rect)
+    pygame.draw.rect(screen, COLORS["ui_accent"], track_rect, 1)
+    v_max = max(1, value_max)
+    val_clamped = max(0, min(value, v_max))
+    t = val_clamped / v_max if v_max else 0
+    thumb_x = track_rect.x + int(t * (track_rect.w - 14))
+    thumb_rect = pygame.Rect(thumb_x, track_rect.y - 2, 14, track_rect.h + 4)
+    pygame.draw.rect(screen, COLORS["ui_accent"], thumb_rect)
+    val_txt = font.render(str(val_clamped), True, (255, 255, 255))
+    screen.blit(val_txt, (track_rect.right + 10, track_rect.y + (BATCH_SLIDER_TRACK_H - val_txt.get_height()) // 2))
+    target_label = font.render("目标格子:", True, COLORS["ui_text"])
+    screen.blit(target_label, (panel.x + panel_pad, panel.y + 88))
+    # 选格子按钮在左侧区域内均匀分布，取消按钮在右侧且颜色不同
+    btn_w = 88
+    btn_h = 36
+    row_y = panel.y + panel_h - 20 - btn_h
+    cancel_w = 80
+    cancel_r = pygame.Rect(panel.x + panel.w - panel_pad - cancel_w, row_y, cancel_w, btn_h)
+    gap_before_cancel = 20
+    space_for_three = cancel_r.left - (panel.x + panel_pad) - gap_before_cancel
+    gap = max(12, (space_for_three - 3 * btn_w) // 2)  # 两段间隔，使三钮均匀
+    block_w = 3 * btn_w + 2 * gap
+    start_x = panel.x + panel_pad + (space_for_three - block_w) // 2
+    cell1_r = pygame.Rect(start_x, row_y, btn_w, btn_h)
+    cell2_r = pygame.Rect(cell1_r.right + gap, row_y, btn_w, btn_h)
+    cell3_r = pygame.Rect(cell2_r.right + gap, row_y, btn_w, btn_h)
+    _draw_button(screen, cell1_r, "格子1", 17)
+    _draw_button(screen, cell2_r, "格子2", 17)
+    _draw_button(screen, cell3_r, "格子3", 17)
+    _draw_button_cancel(screen, cancel_r, "取消", 18)
+    return (cell1_r, cell2_r, cell3_r, cancel_r, track_rect)
+
+
+def batch_place_value_from_track(track_rect: pygame.Rect, mouse_x: int, value_max: int) -> int:
+    """根据滑条轨道与鼠标 x 计算数量 0~value_max，用于拖动更新。"""
+    if track_rect.w <= 0 or value_max <= 0:
+        return 0
+    t = (mouse_x - track_rect.x) / track_rect.w
+    t = max(0.0, min(1.0, t))
+    return int(round(t * value_max))
+
+
+def draw_confirm_dialog(screen: pygame.Surface, message: str) -> Tuple[pygame.Rect, pygame.Rect]:
+    """绘制通用确认对话框。返回 (是 rect, 否 rect)。"""
+    font = get_font(18)
+    panel_w = 340
+    panel_h = 100
+    cx = SCREEN_WIDTH // 2
+    cy = SCREEN_HEIGHT // 2
+    panel = pygame.Rect(cx - panel_w // 2, cy - panel_h // 2, panel_w, panel_h)
+    pygame.draw.rect(screen, (40, 48, 58), panel)
+    pygame.draw.rect(screen, COLORS["ui_accent"], panel, 2)
+    title = font.render(message, True, COLORS["ui_text"])
+    screen.blit(title, (panel.x + (panel.w - title.get_width()) // 2, panel.y + 16))
+    btn_w = 80
+    yes_r = pygame.Rect(panel.x + panel.w // 2 - btn_w - 10, panel.y + 54, btn_w, 34)
+    no_r = pygame.Rect(panel.x + panel.w // 2 + 10, panel.y + 54, btn_w, 34)
+    _draw_button(screen, yes_r, "是", 20)
+    _draw_button(screen, no_r, "否", 20)
+    return (yes_r, no_r)
+
+
+def draw_direct_attack_confirm(screen: pygame.Surface) -> Tuple[pygame.Rect, pygame.Rect]:
+    """绘制直接攻击确认对话框：对方三格皆空时。返回 (是 rect, 否 rect)。"""
+    return draw_confirm_dialog(screen, "对方三格皆空，是否要直接攻击？")
+
+
 def draw_phase3_buttons(
     screen: pygame.Surface,
     action_substate: str,
@@ -150,20 +280,20 @@ def draw_pan_mode_button(screen: pygame.Surface, pan_mode: bool) -> pygame.Rect:
     return r
 
 
-# 网格比例滑块：三角形边长/格子边长 = 1/denom，denom 从 3 到 8
+# 网格比例滑块：三角形边长/格子边长 = 1/denom，denom 从 3 到 10
 GRID_SCALE_DENOM_MIN = 3
-GRID_SCALE_DENOM_MAX = 8
+GRID_SCALE_DENOM_MAX = 10
 GRID_SLIDER_TRACK_W = 140
 GRID_SLIDER_TRACK_H = 14
 
 
 def draw_grid_scale_slider(screen: pygame.Surface, value: int) -> pygame.Rect:
     """
-    绘制「网格比例 1:3~1:8」滑块。value 为当前分母（3~8）。
+    绘制「网格比例 1:3~1:10」滑块。value 为当前分母（3~10）。
     返回滑条轨道 rect，供主循环根据鼠标位置更新 value。
     """
     font = get_font(14)
-    label = font.render("网格 1:3~1:8", True, COLORS["ui_text"])
+    label = font.render("网格 1:3~1:10", True, COLORS["ui_text"])
     track_x = SCREEN_WIDTH - 24 - GRID_SLIDER_TRACK_W
     track_y = SCREEN_HEIGHT - 70
     track_rect = pygame.Rect(track_x, track_y, GRID_SLIDER_TRACK_W, GRID_SLIDER_TRACK_H)
@@ -178,6 +308,15 @@ def draw_grid_scale_slider(screen: pygame.Surface, value: int) -> pygame.Rect:
     val_txt = font.render(f"1:{denom}", True, (255, 255, 255))
     screen.blit(val_txt, (track_rect.right + 6, track_rect.y + (GRID_SLIDER_TRACK_H - val_txt.get_height()) // 2))
     return track_rect
+
+
+def grid_scale_value_from_track(track_rect: pygame.Rect, mouse_x: int) -> int:
+    """根据滑条轨道与鼠标 x 计算分母（3~10），用于拖动更新。"""
+    if track_rect.w <= 0:
+        return GRID_SCALE_DENOM_MIN
+    t = (mouse_x - track_rect.x) / track_rect.w
+    t = max(0.0, min(1.0, t))
+    return int(round(GRID_SCALE_DENOM_MIN + t * (GRID_SCALE_DENOM_MAX - GRID_SCALE_DENOM_MIN)))
 
 
 def draw_dragging_ghost(screen: pygame.Surface, color: str, mouse_pos: Tuple[int, int]) -> None:

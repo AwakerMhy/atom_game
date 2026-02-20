@@ -123,20 +123,53 @@ def draw_start_screen(
             out.append((r, f"{key}_{action}"))
         y += _ROW_H
 
-    y += 24
-    rules_r = pygame.Rect(SCREEN_WIDTH // 2 - 220, y, 120, 44)
-    pygame.draw.rect(screen, (50, 70, 90), rules_r)
-    pygame.draw.rect(screen, COLORS["ui_accent"], rules_r, 2)
-    rules_t = get_font(20).render("规则明细", True, COLORS["ui_text"])
-    screen.blit(rules_t, rules_t.get_rect(center=rules_r.center))
-    out.append((rules_r, "rules"))
+    y += 16
+    t_rules = font.render("规则选项", True, (200, 200, 200))
+    screen.blit(t_rules, (_LEFT, y))
+    y += _ROW_H + 4
+    _cb_size = 22
+    _cb_gap = 8
+    # 选项1：进攻/红效果破坏目标随机
+    cb1 = pygame.Rect(_LEFT, y + (_ROW_H - _cb_size) // 2, _cb_size, _cb_size)
+    pygame.draw.rect(screen, (50, 58, 70), cb1)
+    pygame.draw.rect(screen, COLORS["ui_accent"], cb1, 1)
+    if values.get("random_destroy_on_attack", False):
+        pygame.draw.line(screen, COLORS["ui_accent"], (cb1.left + 4, cb1.centery), (cb1.centerx - 2, cb1.bottom - 4), 2)
+        pygame.draw.line(screen, COLORS["ui_accent"], (cb1.centerx - 2, cb1.bottom - 4), (cb1.right - 4, cb1.top + 4), 2)
+    lbl1 = get_font(16).render("进攻与红效果：被破坏的黑原子/目标由系统随机选择", True, COLORS["ui_text"])
+    screen.blit(lbl1, (cb1.right + _cb_gap, y + (_ROW_H - lbl1.get_height()) // 2))
+    out.append((cb1, "toggle_random_destroy"))
+    y += _ROW_H
+    # 选项2：黑原子随机放在已有原子邻格
+    cb2 = pygame.Rect(_LEFT, y + (_ROW_H - _cb_size) // 2, _cb_size, _cb_size)
+    pygame.draw.rect(screen, (50, 58, 70), cb2)
+    pygame.draw.rect(screen, COLORS["ui_accent"], cb2, 1)
+    if values.get("random_place_black_on_neighbor", False):
+        pygame.draw.line(screen, COLORS["ui_accent"], (cb2.left + 4, cb2.centery), (cb2.centerx - 2, cb2.bottom - 4), 2)
+        pygame.draw.line(screen, COLORS["ui_accent"], (cb2.centerx - 2, cb2.bottom - 4), (cb2.right - 4, cb2.top + 4), 2)
+    lbl2 = get_font(16).render("放置黑原子：随机放在该格已有原子的邻格上", True, COLORS["ui_text"])
+    screen.blit(lbl2, (cb2.right + _cb_gap, y + (_ROW_H - lbl2.get_height()) // 2))
+    out.append((cb2, "toggle_random_place_black"))
+    y += _ROW_H
 
-    start_r = pygame.Rect(SCREEN_WIDTH // 2 - 80, y, 160, 44)
+    # 右侧按钮：规则明细、开始游戏（垂直居中，不压在最下面）
+    _btn_y = SCREEN_HEIGHT // 2 - 22
+    _btn_gap = 20
+    _start_w, _start_h = 160, 44
+    _rules_w = 120
+    start_r = pygame.Rect(SCREEN_WIDTH - _btn_gap - _start_w, _btn_y, _start_w, _start_h)
     pygame.draw.rect(screen, (50, 70, 90), start_r)
     pygame.draw.rect(screen, COLORS["ui_accent"], start_r, 2)
     start_t = get_font(22).render("开始游戏", True, COLORS["ui_text"])
     screen.blit(start_t, start_t.get_rect(center=start_r.center))
     out.append((start_r, "start"))
+
+    rules_r = pygame.Rect(start_r.left - _btn_gap - _rules_w, _btn_y, _rules_w, _start_h)
+    pygame.draw.rect(screen, (50, 70, 90), rules_r)
+    pygame.draw.rect(screen, COLORS["ui_accent"], rules_r, 2)
+    rules_t = get_font(20).render("规则明细", True, COLORS["ui_text"])
+    screen.blit(rules_t, rules_t.get_rect(center=rules_r.center))
+    out.append((rules_r, "rules"))
 
     return out
 
@@ -157,6 +190,8 @@ def run_start_screen(screen: pygame.Surface) -> GameConfig:
         "weight_red": cfg.draw_weights[1],
         "weight_blue": cfg.draw_weights[2],
         "weight_green": cfg.draw_weights[3],
+        "random_destroy_on_attack": getattr(cfg, "random_destroy_on_attack", True),
+        "random_place_black_on_neighbor": getattr(cfg, "random_place_black_on_neighbor", True),
     }
     clock = pygame.time.Clock()
     from src.config import FPS
@@ -205,7 +240,15 @@ def run_start_screen(screen: pygame.Surface) -> GameConfig:
                                     values["weight_blue"],
                                     values["weight_green"],
                                 ],
+                                random_destroy_on_attack=values["random_destroy_on_attack"],
+                                random_place_black_on_neighbor=values["random_place_black_on_neighbor"],
                             )
+                        if key == "toggle_random_destroy":
+                            values["random_destroy_on_attack"] = not values["random_destroy_on_attack"]
+                            break
+                        if key == "toggle_random_place_black":
+                            values["random_place_black_on_neighbor"] = not values["random_place_black_on_neighbor"]
+                            break
                         # key 格式: "initial_black_minus" 等
                         parts = key.rsplit("_", 1)
                         if len(parts) == 2:

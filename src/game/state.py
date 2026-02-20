@@ -1,8 +1,10 @@
 """
 游戏状态：双方原子池、生命、场地（各 3 格）、当前玩家与回合阶段等。
 """
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Tuple
 from src.grid.cell import Cell, ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, COLORS as ATOM_COLORS
+
+GridPoint = Tuple[int, int]
 from src.game.game_config import GameConfig, default_config
 
 # 阶段
@@ -47,6 +49,7 @@ def make_cells() -> List[Cell]:
 class GameState:
     def __init__(self, config: Optional[GameConfig] = None):
         cfg = config or default_config()
+        self.config = cfg
         # 玩家 0 与 1：原子池（按配置）、生命、3 个格子
         pool_copy = dict(cfg.initial_pool)
         self.pools = [dict(pool_copy), dict(pool_copy)]
@@ -74,6 +77,17 @@ class GameState:
         self.turn_number: int = 0
         self.is_first_turn: bool = True
 
+        # 蓝效果：与该蓝相邻的黑原子在下一回合内不可被破坏。(player -> set of (cell_i, (r,c)))
+        self.blue_protected_points: Dict[int, Set[Tuple[int, GridPoint]]] = {0: set(), 1: set()}
+        self.blue_protection_until_turn: Dict[int, int] = {}  # player -> 保护持续到该回合号（不含）
+
+    def is_black_protected(self, player: int, cell_i: int, pt: GridPoint) -> bool:
+        """该玩家的该格该格点上的黑原子是否处于蓝效果保护中。"""
+        s = self.blue_protected_points.get(player)
+        if not s:
+            return False
+        return (cell_i, pt) in s
+
     def opponent(self, player: int) -> int:
         return 1 - player
 
@@ -85,6 +99,10 @@ class GameState:
 
     def non_empty_cell_count(self, player: int) -> int:
         return sum(1 for c in self.player_cells(player) if not c.is_empty())
+
+    def cells_with_black_count(self, player: int) -> int:
+        """有至少一个黑原子的格子数量；每回合该玩家可进攻次数即为此数。"""
+        return sum(1 for c in self.player_cells(player) if c.has_black())
 
     def x_for_turn(self) -> int:
         """当前回合玩家的 x（非空格子数）。"""
