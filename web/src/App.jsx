@@ -1,12 +1,14 @@
-import { useState, useCallback, useEffect } from 'react'
-import { createGameState, pool, canAttackThisTurn, opponent } from './game/state.js'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
+import { createGameState, pool, canAttackThisTurn, opponent, hasCellAttackedThisTurn } from './game/state.js'
 import { startTurnDefault } from './game/turn.js'
 import { applyPlace, batchPlaceOnCell } from './game/turn.js'
 import {
   applyDirectAttack,
   handleAttackEnemyCell,
+  clearCellsWithNoBlack,
 } from './game/attack.js'
-import { applyEffectBlue, applyEffectGreen, applyEffectRedRandom } from './game/combat.js'
+import { applyEffectBlue, applyEffectGreen, applyEffectRedRandom, getConnectivityChoice, applyConnectivityChoice } from './game/combat.js'
 import { PHASE_PLACE, PHASE_ACTION, INITIAL_HP, ATOM_BLACK } from './game/config.js'
 import { Cell } from './game/cell.js'
 import Board from './components/Board.jsx'
@@ -21,12 +23,16 @@ function App() {
   const [selectedColor, setSelectedColor] = useState(null)
   const [batchMode, setBatchMode] = useState(false)
   const [batchCount, setBatchCount] = useState(1)
-  const [gridScaleDenom, setGridScaleDenom] = useState(4)
+  const [gridScaleDenom, setGridScaleDenom] = useState(6)
   const [interactionMode, setInteractionMode] = useState('operate')
   const [actionSubstate, setActionSubstate] = useState('idle')
   const [attackMyCell, setAttackMyCell] = useState(null)
   const [attackEnemyCell, setAttackEnemyCell] = useState(null)
+  const [redEffectSource, setRedEffectSource] = useState(null)
   const [attackMessage, setAttackMessage] = useState('')
+  const [connectivityChoice, setConnectivityChoice] = useState(null)
+  const [pendingAction, setPendingAction] = useState(null)
+  const nextConnectivityChoiceRef = useRef(null)
 
   const maxBatch = state.phase === PHASE_PLACE
     ? Math.min(pool(state, state.currentPlayer).black ?? 0, state.turnPlaceLimit - state.turnPlacedCount)
@@ -42,6 +48,9 @@ function App() {
       setActionSubstate('idle')
       setAttackMyCell(null)
       setAttackEnemyCell(null)
+      setRedEffectSource(null)
+      setConnectivityChoice(null)
+      setPendingAction(null)
     }
   }, [state.phase])
 
@@ -49,6 +58,7 @@ function App() {
     setActionSubstate('idle')
     setAttackMyCell(null)
     setAttackEnemyCell(null)
+    setRedEffectSource(null)
   }, [])
 
   const updateState = useCallback((updater) => {
@@ -59,6 +69,47 @@ function App() {
     })
   }, [])
 
+  const handleConnectivityChoice = useCallback(
+    (choiceIndex) => {
+      const cc = connectivityChoice
+      if (!cc || choiceIndex < 0 || choiceIndex >= cc.components.length) return
+      const { defender, cellIndex, type, components } = cc
+      nextConnectivityChoiceRef.current = null
+      updateState((s) => {
+        const cell = s.cells[defender][cellIndex]
+        applyConnectivityChoice(cell, type, components[choiceIndex])
+        nextConnectivityChoiceRef.current = getConnectivityChoice(cell)
+      })
+      const next = nextConnectivityChoiceRef.current
+      if (next) {
+        setConnectivityChoice({ defender, cellIndex, ...next })
+        setAttackMessage(
+          next.type === 'all'
+            ? '步骤(1)：该格不连通，请选择要保留的连通子集'
+            : '步骤(2)：多个黑连通子集，请选择要保留的一个'
+        )
+      } else {
+        setConnectivityChoice(null)
+        if (pendingAction === 'attack') {
+          updateState((s) => {
+            s.turnAttackUsed++
+            clearCellsWithNoBlack(s, defender)
+            s.currentPlayer = 1 - defender
+            s.attackedCellsThisTurn = s.attackedCellsThisTurn ?? []
+            if (attackMyCell) s.attackedCellsThisTurn.push([attackMyCell[0], attackMyCell[1]])
+          })
+          resetAttackState()
+          setAttackMessage('进攻完成')
+        } else if (pendingAction === 'red_effect') {
+          updateState((s) => { s.currentPlayer = 1 - defender })
+          setAttackMessage('红效果：已随机破坏对方黑原子')
+        }
+        setPendingAction(null)
+      }
+    },
+    [connectivityChoice, pendingAction, attackMyCell, updateState, resetAttackState]
+  )
+
   const handleCellClick = useCallback(
     (player, cellIndex, r, c, viewCenter) => {
       if (interactionMode !== 'operate') return
@@ -68,17 +119,44 @@ function App() {
         const opp = opponent(state, cur)
         const ptKey = r != null && c != null ? `${r},${c}` : null
 
+        if (actionSubstate === 'red_effect_target' && player === opp) {
+          const src = redEffectSource
+          if (src) {
+            const next = { ...state }
+            const result = applyEffectRedRandom(next, src.player, src.cellIndex, src.r, src.c, cellIndex)
+            setState(next)
+            setActionSubstate('idle')
+            setRedEffectSource(null)
+            if (result && typeof result === 'object' && result.ok) {
+              if (result.connectivityChoice) {
+                const cc = result.connectivityChoice
+                setConnectivityChoice(cc)
+                setPendingAction('red_effect')
+                setAttackMessage(
+                  cc.type === 'all'
+                    ? '步骤(1)：该格不连通，请选择要保留的连通子集'
+                    : '步骤(2)：多个黑连通子集，请选择要保留的一个'
+                )
+                updateState((s) => { s.currentPlayer = cc.defender })
+              } else {
+                setAttackMessage('红效果：已随机破坏对方黑原子')
+              }
+            } else {
+              setAttackMessage('该格无可破坏的黑原子')
+            }
+          }
+          return
+        }
+
         if (actionSubstate === 'idle' && player === cur && ptKey != null) {
           const cell = state.cells[cur][cellIndex]
           const color = cell.get(r, c)
           if (color === 'red') {
             const y = cell.countBlackNeighbors(r, c)
             if (y > 0) {
-              updateState((s) => {
-                if (applyEffectRedRandom(s, cur, cellIndex, r, c)) {
-                  setAttackMessage('红效果：已随机破坏对方黑原子')
-                }
-              })
+              setRedEffectSource({ player: cur, cellIndex, r, c })
+              setActionSubstate('red_effect_target')
+              setAttackMessage('请选择要作用的对方格子')
               return
             }
           } else if (color === 'blue') {
@@ -102,19 +180,35 @@ function App() {
           if (player === opp && !state.cells[opp][cellIndex].isEmpty()) {
             const enemyCell = [opp, cellIndex]
             setAttackEnemyCell(enemyCell)
-            updateState((s) => {
-              const ret = handleAttackEnemyCell(s, attackMyCell, enemyCell)
-              setActionSubstate(ret.substate)
-              setAttackMessage(ret.message ?? '')
-              if (ret.substate === 'idle') resetAttackState()
-            })
+            const next = { ...state }
+            const ret = handleAttackEnemyCell(next, attackMyCell, enemyCell)
+            setState(next)
+            setActionSubstate(ret.substate)
+            setAttackMessage(ret.message ?? '')
+            if (ret.substate === 'idle') {
+              updateState((s) => {
+                s.attackedCellsThisTurn = s.attackedCellsThisTurn ?? []
+                s.attackedCellsThisTurn.push([attackMyCell[0], attackMyCell[1]])
+              })
+              resetAttackState()
+            } else if (ret.substate === 'defender_choose_connected' && ret.connectivityChoice) {
+              const cc = ret.connectivityChoice
+              setConnectivityChoice(cc)
+              setPendingAction(ret.pendingAction ?? null)
+              setAttackMessage(
+                cc.type === 'all'
+                  ? '步骤(1)：该格不连通，请选择要保留的连通子集'
+                  : '步骤(2)：多个黑连通子集，请选择要保留的一个'
+              )
+              updateState((s) => { s.currentPlayer = cc.defender })
+            }
           }
           return
         }
 
         if (actionSubstate === 'idle' && player === cur && canAttackThisTurn(state)) {
           const cell = state.cells[cur][cellIndex]
-          if (!cell.isEmpty() && cell.hasBlack()) {
+          if (!cell.isEmpty() && cell.hasBlack() && !hasCellAttackedThisTurn(state, cur, cellIndex)) {
             setAttackMyCell([cur, cellIndex])
             const oppAllEmpty = [0, 1, 2].every((i) => state.cells[opp][i].isEmpty())
             if (oppAllEmpty) {
@@ -178,6 +272,7 @@ function App() {
       updateState,
       actionSubstate,
       attackMyCell,
+      redEffectSource,
       resetAttackState,
     ]
   )
@@ -263,11 +358,46 @@ function App() {
           gridScaleDenom={gridScaleDenom}
           interactionMode={interactionMode}
           attackHighlightCell={attackMyCell ? { player: attackMyCell[0], cellIndex: attackMyCell[1] } : null}
+          connectivityChoice={connectivityChoice}
         />
       </main>
-      <div className="fixed bottom-20 left-0 right-0 z-10">
+      <div className="fixed bottom-0 left-0 right-0 z-10">
         <PlayerBar state={state} player={0} />
       </div>
+      {connectivityChoice && Array.isArray(connectivityChoice.components) && connectivityChoice.components.length > 0 &&
+        createPortal(
+          <div className="fixed inset-0 bg-black/40 z-[100] flex items-center justify-start pl-2 pointer-events-none">
+            <div className="bg-gray-900 rounded-lg p-3 max-w-[200px] border-2 border-amber-500/80 shadow-xl pointer-events-auto">
+              <h3 className="text-sm font-semibold text-amber-400 mb-1">
+                {connectivityChoice.type === 'all'
+                  ? '步骤(1)：该格不连通'
+                  : '步骤(2)：多个黑连通子集'}
+              </h3>
+              <p className="text-xs text-gray-300 mb-2">
+                可拖动视角查看格子，选保留子集：
+              </p>
+              <div className="flex flex-col gap-1.5">
+                {[
+                  { bg: 'bg-amber-600', hover: 'hover:bg-amber-500', label: '琥珀' },
+                  { bg: 'bg-cyan-600', hover: 'hover:bg-cyan-500', label: '青' },
+                  { bg: 'bg-pink-600', hover: 'hover:bg-pink-500', label: '粉' },
+                  { bg: 'bg-emerald-600', hover: 'hover:bg-emerald-500', label: '翠绿' },
+                  { bg: 'bg-violet-600', hover: 'hover:bg-violet-500', label: '紫' },
+                ].slice(0, connectivityChoice.components.length).map((style, i) => (
+                  <button
+                    key={i}
+                    onClick={() => handleConnectivityChoice(i)}
+                    className={`px-2 py-1.5 ${style.bg} ${style.hover} rounded text-xs font-medium flex items-center gap-1.5`}
+                  >
+                    <span className="w-4 h-4 rounded-full bg-white/30 flex items-center justify-center text-[10px] font-bold">{i + 1}</span>
+                    保留 {i + 1}（{style.label}）
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
       <HUD
         state={state}
         setState={setState}
@@ -278,6 +408,8 @@ function App() {
           if (attackMyCell) {
             updateState((s) => {
               const dmg = applyDirectAttack(s, s.cells[attackMyCell[0]][attackMyCell[1]])
+              s.attackedCellsThisTurn = s.attackedCellsThisTurn ?? []
+              s.attackedCellsThisTurn.push([attackMyCell[0], attackMyCell[1]])
               setAttackMessage(`直接攻击，造成 ${dmg} 点伤害`)
             })
             resetAttackState()
@@ -285,6 +417,8 @@ function App() {
         }}
         onDirectAttackCancel={resetAttackState}
         attackMessage={attackMessage}
+        connectivityChoice={connectivityChoice}
+        onConnectivityChoice={handleConnectivityChoice}
       />
     </div>
   )

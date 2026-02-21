@@ -192,6 +192,7 @@ export function endPlacePhase(state) {
   state.phase = PHASE_ACTION
   state.turnAttackUsed = 0
   state.turnAttackLimit = state.cells[state.currentPlayer].filter((c) => c.hasBlack()).length
+  state.attackedCellsThisTurn = []
 }
 
 export function endTurn(state) {

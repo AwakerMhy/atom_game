@@ -5,9 +5,7 @@ import {
   attackBeatsDefense,
   extraDestroys,
   destroyOneBlackAndGetComponents,
-  removeComponentsExcept,
-  removeComponentsWithoutBlackAndReturnRest,
-  removeBlackAtomsExcept,
+  getConnectivityChoice,
   clearCellIfNoBlack,
   resolveDirectAttack,
 } from './combat.js'
@@ -71,20 +69,17 @@ export function resolveAttackRandom(state, attackMyCell, attackEnemyCell) {
       defCell.remove(r, c)
     }
   }
+  // 攻击破坏结束后立即检查是否产生多个连通子集，若有则需被破坏方选择
+  const choice = getConnectivityChoice(defCell)
+  if (choice) {
+    return {
+      substate: 'defender_choose_connected',
+      message: '请选择要保留的连通子集',
+      connectivityChoice: { defender: enP, cellIndex: enCi, ...choice },
+      pendingAction: 'attack',
+    }
+  }
   clearCellsWithNoBlack(state, enP)
-  let comps = removeComponentsWithoutBlackAndReturnRest(defCell)
-  while (comps.length > 1) {
-    const toKeep = comps[Math.floor(Math.random() * comps.length)]
-    removeComponentsExcept(defCell, toKeep)
-    comps = removeComponentsWithoutBlackAndReturnRest(defCell)
-  }
-  let blackComps = defCell.blackConnectedComponents()
-  while (blackComps.length > 1) {
-    const toKeep = blackComps[Math.floor(Math.random() * blackComps.length)]
-    removeBlackAtomsExcept(defCell, toKeep)
-    removeComponentsWithoutBlackAndReturnRest(defCell)
-    blackComps = defCell.blackConnectedComponents()
-  }
   state.turnAttackUsed++
   return { substate: 'idle', message: '进攻完成' }
 }

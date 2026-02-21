@@ -2,7 +2,8 @@ import { useMemo, useState, useRef, useCallback } from 'react'
 import { pointToXy, neighbors, distanceBetween } from '../game/grid.js'
 import { pixelToGrid } from '../utils/hex.js'
 import { attackPower, defensePower } from '../game/combat.js'
-import { ATOM_RED, ATOM_BLUE, ATOM_GREEN } from '../game/config.js'
+import { ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN } from '../game/config.js'
+import { isBlackProtected } from '../game/state.js'
 
 const CELL_SIDE = 200
 const CELL_W = CELL_SIDE
@@ -28,6 +29,8 @@ function toPx(r, c, scale, ox, oy) {
 
 const DRAG_THRESHOLD = 4
 
+const COMPONENT_COLORS = ['#f59e0b', '#06b6d4', '#ec4899', '#22c55e', '#8b5cf6']
+
 function CellView({
   cell,
   player,
@@ -44,6 +47,7 @@ function CellView({
   onDragEnd,
   interactionMode,
   isAttackHighlight,
+  connectivityChoiceCell,
 }) {
   const { x, y, w, h } = rect
   const denom = Math.max(3, Math.min(10, gridScaleDenom ?? 4))
@@ -177,15 +181,41 @@ function CellView({
         {atoms.map(([[r, c], color]) => {
           const p = toPx(r, c, scale, ox, oy)
           const fill = ATOM_COLORS[color] ?? '#888'
+          const compIdx = connectivityChoiceCell?.components?.findIndex((comp) => comp.includes(`${r},${c}`))
+          const compColor = compIdx >= 0 ? COMPONENT_COLORS[compIdx % COMPONENT_COLORS.length] : null
+          const protectedByBlue = color === ATOM_BLACK && state && isBlackProtected(state, player, cellIndex, [r, c])
           return (
-            <circle
-              key={`${r},${c}`}
-              cx={p.x}
-              cy={p.y}
-              r={scale * 0.32}
-              fill={fill}
-              stroke="#333"
-            />
+            <g key={`${r},${c}`}>
+              {compColor != null && (
+                <circle cx={p.x} cy={p.y} r={scale * 0.4} fill={compColor} fillOpacity={0.4} stroke={compColor} strokeWidth={2} />
+              )}
+              {protectedByBlue && (
+                <circle cx={p.x} cy={p.y} r={scale * 0.38} fill="none" stroke="#4678c8" strokeWidth={scale * 0.08} strokeOpacity={0.9} />
+              )}
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={scale * 0.32}
+                fill={fill}
+                stroke={protectedByBlue ? '#4678c8' : '#333'}
+              />
+            </g>
+          )
+        })}
+        {connectivityChoiceCell?.components?.map((comp, i) => {
+          if (!comp?.length) return null
+          const pts = comp.map((k) => k.split(',').map(Number))
+          const avgR = pts.reduce((s, [r]) => s + r, 0) / pts.length
+          const avgC = pts.reduce((s, [, c]) => s + c, 0) / pts.length
+          const cen = toPx(avgR, avgC, scale, ox, oy)
+          const col = COMPONENT_COLORS[i % COMPONENT_COLORS.length]
+          return (
+            <g key={`comp-${i}`}>
+              <circle cx={cen.x} cy={cen.y} r={scale * 0.5} fill={col} fillOpacity={0.6} stroke={col} strokeWidth={2} />
+              <text x={cen.x} y={cen.y} textAnchor="middle" dominantBaseline="middle" fill="#111" fontSize={scale * 0.5} fontWeight="bold">
+                {i + 1}
+              </text>
+            </g>
           )
         })}
       </g>
@@ -231,9 +261,8 @@ export default function Board({
   gridScaleDenom,
   interactionMode = 'operate',
   attackHighlightCell = null,
+  connectivityChoice = null,
 }) {
-  const cur = state.currentPlayer
-  const opp = 1 - cur
   const [viewPan, setViewPan] = useState({})
   const dragRef = useRef(null)
 
@@ -269,20 +298,20 @@ export default function Board({
     onCellClick?.(player, cellIndex, r, c, viewCenter)
   }, [onCellClick])
 
+  const INFO_H = 44
   const layout = useMemo(() => {
-    const totalW = 3 * CELL_W + 2 * GAP
-    const totalH = 2 * CELL_H + ROW_GAP
     const left = 24
-    const top = 24
+    const top0 = 24
+    const row1Y = 0
     const row1 = Array.from({ length: 3 }, (_, i) => ({
       x: left + i * (CELL_W + GAP),
-      y: top,
+      y: row1Y,
       w: CELL_W,
       h: CELL_H,
     }))
     const row0 = Array.from({ length: 3 }, (_, i) => ({
       x: left + i * (CELL_W + GAP),
-      y: top + CELL_H + ROW_GAP,
+      y: top0 + CELL_H + ROW_GAP,
       w: CELL_W,
       h: CELL_H,
     }))
@@ -293,17 +322,33 @@ export default function Board({
   const width = 3 * CELL_W + 2 * GAP + 48
   const height = 2 * (CELL_H + LABEL_H) + ROW_GAP + 24
 
+  const p1Bottom = layout[1][0].y + CELL_H + INFO_H
+  const p0Top = layout[0][0].y
+  const dividerY = (p1Bottom + p0Top) / 2
+  const dividerLeft = 24
+  const dividerRight = 24 + 3 * CELL_W + 2 * GAP
+  const currentPlayer = state.currentPlayer
+  const rowBlockH = CELL_H + INFO_H
+  const highlightPad = 24
+
   return (
-    <svg width={width} height={height} className="select-none flex-shrink-0">
-      <text x={8} y={layout[1][0].y + CELL_H / 2} fill="#ccc" fontSize="12">
-        P{opp}
+    <svg width={width} height={height} className="select-none flex-shrink-0" style={{ overflow: 'visible' }}>
+      {currentPlayer === 1 && (
+        <rect x={-highlightPad} y={layout[1][0].y} width={width + highlightPad * 2} height={rowBlockH} fill="rgba(100, 140, 200, 0.1)" rx={4} />
+      )}
+      {currentPlayer === 0 && (
+        <rect x={-highlightPad} y={layout[0][0].y} width={width + highlightPad * 2} height={rowBlockH} fill="rgba(100, 140, 200, 0.1)" rx={4} />
+      )}
+      <text x={-17} y={layout[1][0].y + CELL_H / 2} fill="#ccc" fontSize="18" fontWeight="bold">
+        P1
       </text>
       {layout[1].map((rect, i) => (
         <CellView
           key={`1-${i}`}
-          cell={state.cells[opp][i]}
-          player={opp}
+          cell={state.cells[1][i]}
+          player={1}
           cellIndex={i}
+          connectivityChoiceCell={connectivityChoice?.defender === 1 && connectivityChoice?.cellIndex === i ? connectivityChoice : null}
           rect={rect}
           state={state}
           selectedColor={selectedColor}
@@ -311,22 +356,24 @@ export default function Board({
           clipId={`clip-1-${i}`}
           gridScaleDenom={gridScaleDenom}
           interactionMode={interactionMode}
-          pan={getPan(opp, i)}
+          pan={getPan(1, i)}
           onDragStart={handleDragStart}
           onPan={handlePan}
           onDragEnd={handleDragEnd}
-          isAttackHighlight={attackHighlightCell?.player === opp && attackHighlightCell?.cellIndex === i}
+          isAttackHighlight={attackHighlightCell?.player === 1 && attackHighlightCell?.cellIndex === i}
         />
       ))}
-      <text x={8} y={layout[0][0].y + CELL_H / 2} fill="#ccc" fontSize="12">
-        P{cur}
+      <line x1={dividerLeft} y1={dividerY} x2={dividerRight} y2={dividerY} stroke="#555" strokeWidth={1} strokeDasharray="4 4" />
+      <text x={-17} y={layout[0][0].y + CELL_H / 2} fill="#ccc" fontSize="18" fontWeight="bold">
+        P0
       </text>
       {layout[0].map((rect, i) => (
         <CellView
           key={`0-${i}`}
-          cell={state.cells[cur][i]}
-          player={cur}
+          cell={state.cells[0][i]}
+          player={0}
           cellIndex={i}
+          connectivityChoiceCell={connectivityChoice?.defender === 0 && connectivityChoice?.cellIndex === i ? connectivityChoice : null}
           rect={rect}
           state={state}
           selectedColor={selectedColor}
@@ -334,11 +381,11 @@ export default function Board({
           clipId={`clip-0-${i}`}
           gridScaleDenom={gridScaleDenom}
           interactionMode={interactionMode}
-          pan={getPan(cur, i)}
+          pan={getPan(0, i)}
           onDragStart={handleDragStart}
           onPan={handlePan}
           onDragEnd={handleDragEnd}
-          isAttackHighlight={attackHighlightCell?.player === cur && attackHighlightCell?.cellIndex === i}
+          isAttackHighlight={attackHighlightCell?.player === 0 && attackHighlightCell?.cellIndex === i}
         />
       ))}
     </svg>

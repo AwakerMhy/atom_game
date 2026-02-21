@@ -5,20 +5,42 @@ import { applyGreenEndOfTurn } from '../game/combat.js'
 import { PHASE_CONFIRM, PHASE_PLACE, PHASE_ACTION } from '../game/config.js'
 
 const RULES_OVERLAY_LINES = [
-  '【规则摘要】 点击「规则」按钮或下方关闭按钮关闭',
-  '目标：将对方生命降至 0。每方 3 格，格点放原子（黑/红/蓝/绿）。',
-  '阶段1：拖动原子到己方格放置，点「结束排布」。',
-  '阶段2：点击己方格子进攻再点对方格；或点击己方红/蓝/绿原子发动效果；点「结束回合」。',
-  '三角形网格的边长为1',
-  '攻击力=己格黑原子竖向跨度除以sqrt(3)/2；防御力=对方格黑原子横向跨度。攻>防可破坏黑原子。',
-  '红=对方须破坏 y 个黑原子（y=该红原子相邻黑数），随机选择。',
-  '',
-  '【原子持续性效果】',
-  '黑：决定己格攻击力与对方格防御力；每回合己方「有黑原子的格子」各可发动一次进攻；非空格至少需有一黑。',
-  '红：发动时对方须破坏 y 个黑原子；进攻时己格红数 n、对方格蓝数 m，额外可破坏数=max(0,n-m)。',
-  '蓝（点击）：与该蓝相邻的黑原子下一回合内不可被破坏。',
-  '绿（点击）：该绿原子就地变为一个黑原子（不消耗池）。',
-  '绿（持续）：回合结束时获得「己方所有绿原子邻接黑原子数」之和的黑原子。',
+  "【规则摘要】 点击「规则」或下方关闭按钮关闭",
+  "",
+  "一、目标",
+  "将对方生命降至 0。每方 3 格，格点可放置黑/红/蓝/绿原子。",
+  "",
+  "二、游戏阶段",
+  "阶段1：排布。拖放原子到己方格，点「结束排布」。",
+  "阶段2：效果。点击己方红/蓝/绿原子发动效果。",
+  "阶段3：进攻。点击己方格子再点对方格进攻，随后「结束回合」。",
+  "",
+  "三、场地与进攻",
+  "· 三角形网格边长为 1。",
+  "· 每回合，己方有黑原子的格子各可发动一次进攻。",
+  "· 攻击力 = 黑原子竖向跨度 ÷ √3/2；防御力 = 黑原子横向跨度。",
+  "· 攻 > 防：可破坏一个黑原子，造成 1 点伤害。",
+  "· 对方格子无黑原子：直接造成攻击力数值的伤害。",
+  "",
+  "四、原子排布",
+  "黑原子只能随机排布；红/蓝/绿可选在已有黑原子的邻居位置放置。",
+  "非黑原子的效果取决于其所连接的黑原子数目。",
+  "",
+  "五、原子持续性效果",
+  "红：进攻时，己方格红原子连接黑原子数 x，可多破坏 x 个原子。",
+  "蓝：遭进攻时，己方格蓝原子连接黑原子数 x，可少破坏 x 个（最低为 0）。",
+  "绿：回合结束时，获得「己方所有绿原子邻接黑原子数」之和的黑原子。",
+  "",
+  "六、原子点击效果",
+  "红：先选对方格子，再在该格内随机破坏 y 个黑原子（y = 该红原子相邻黑数）。",
+  "蓝：与该蓝相邻的黑原子下一回合内不可被破坏，期间蓝色高亮。",
+  "绿：该绿原子就地变为黑原子（不消耗池）。",
+  "",
+  "七、破坏后连通规则",
+  "每批原子被破坏后，进攻与红效果均按此流程：",
+  "(1) 检查该格剩余原子是否连通，不连通则由被破坏方选择保留一个连通子集；",
+  "(2) 仅看黑原子是否连通，若存在多个黑连通子集则由被破坏方选一个保留，其余破坏；",
+  "(3) 自动清除所有不包含黑原子的连通子集。",
 ]
 
 export default function HUD({
@@ -30,6 +52,8 @@ export default function HUD({
   onDirectAttackConfirm,
   onDirectAttackCancel,
   attackMessage,
+  connectivityChoice,
+  onConnectivityChoice,
 }) {
   const [showRules, setShowRules] = useState(false)
   const cur = state.currentPlayer
@@ -81,10 +105,16 @@ export default function HUD({
   }
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-gray-900/95 py-3 px-4 flex flex-wrap items-center justify-center gap-4">
+    <div className="fixed right-0 top-24 bottom-20 w-28 flex flex-col gap-2 py-4 pr-2 pl-2 bg-gray-900/90 border-l border-gray-700 z-20">
+      <p className="text-xs text-gray-400 px-1 pb-2 border-b border-gray-600">
+        {state.phase === PHASE_PLACE &&
+          `排布 · 已放 ${state.turnPlacedCount}/${state.turnPlaceLimit}`}
+        {state.phase === PHASE_ACTION &&
+          (attackMessage || `动作 · 进攻 ${state.turnAttackUsed}/${state.turnAttackLimit}`)}
+      </p>
       <button
         onClick={() => setShowRules(true)}
-        className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded text-sm"
+        className="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded text-sm w-full"
       >
         规则
       </button>
@@ -93,51 +123,63 @@ export default function HUD({
           <button
             onClick={() => updateState((s) => undoLastPlacement(s))}
             disabled={!(state.placementHistory?.length)}
-            className="px-3 py-1 bg-gray-600 hover:bg-gray-500 disabled:opacity-40 disabled:cursor-not-allowed rounded text-sm"
+            className="px-3 py-2 bg-gray-600 hover:bg-gray-500 disabled:opacity-40 disabled:cursor-not-allowed rounded text-sm w-full"
           >
             撤回
           </button>
           <button
             onClick={handleEndPlace}
-            className="px-4 py-1 bg-amber-600 hover:bg-amber-500 rounded text-sm"
+            className="px-3 py-2 bg-amber-600 hover:bg-amber-500 rounded text-sm w-full"
           >
             结束排布
           </button>
         </>
       )}
-      {state.phase === PHASE_ACTION && (
+      {state.phase === PHASE_ACTION && connectivityChoice && (
+        <>
+          <p className="text-xs text-amber-400 px-1 font-medium">
+            {connectivityChoice.type === 'all'
+              ? '步骤(1)：该格不连通，请选择要保留的连通子集'
+              : '步骤(2)：多个黑连通子集，请选择要保留的一个'}
+          </p>
+          {connectivityChoice.components.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => onConnectivityChoice(i)}
+              className="px-3 py-2 bg-amber-700 hover:bg-amber-600 rounded text-sm w-full"
+            >
+              保留子集 {i + 1}
+            </button>
+          ))}
+        </>
+      )}
+      {state.phase === PHASE_ACTION && !connectivityChoice && (
         <>
           <button
             onClick={handleEndTurn}
-            className="px-4 py-1 bg-sky-600 hover:bg-sky-500 rounded text-sm"
+            className="px-3 py-2 bg-sky-600 hover:bg-sky-500 rounded text-sm w-full"
           >
             结束回合
           </button>
           {actionSubstate === 'direct_attack_confirm' && attackMyCell && (
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-amber-400">对方三格皆空，直接攻击？</span>
+            <>
+              <span className="text-xs text-amber-400 px-1">直接攻击？</span>
               <button
                 onClick={onDirectAttackConfirm}
-                className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded text-sm"
+                className="px-3 py-2 bg-red-600 hover:bg-red-500 rounded text-sm w-full"
               >
                 是
               </button>
               <button
                 onClick={onDirectAttackCancel}
-                className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded text-sm"
+                className="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded text-sm w-full"
               >
                 否
               </button>
-            </div>
+            </>
           )}
         </>
       )}
-      <p className="text-xs text-gray-500 w-full text-center">
-        {state.phase === PHASE_PLACE &&
-          `排布阶段 · 已放 ${state.turnPlacedCount}/${state.turnPlaceLimit}`}
-        {state.phase === PHASE_ACTION &&
-          (attackMessage || `动作阶段 · 进攻 ${state.turnAttackUsed}/${state.turnAttackLimit}`)}
-      </p>
     </div>
   )
 }

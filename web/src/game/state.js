@@ -53,6 +53,7 @@ export function createGameState(config = {}) {
     turnPlacedCount: 0,
     turnAttackUsed: 0,
     turnNumber: 0,
+    attackedCellsThisTurn: [],
     isFirstTurn: true,
     blueProtectedPoints: { 0: new Set(), 1: new Set() },
     blueProtectionUntilTurn: {},
@@ -88,6 +89,12 @@ export function canAttackThisTurn(state) {
   if (state.turnAttackUsed >= state.turnAttackLimit) return false
   if (state.isFirstTurn) return false
   return true
+}
+
+/** 该格本回合是否已进攻过（每格每回合只能进攻一次） */
+export function hasCellAttackedThisTurn(state, player, cellIndex) {
+  const list = state.attackedCellsThisTurn ?? []
+  return list.some(([p, ci]) => p === player && ci === cellIndex)
 }
 
 export function winner(state) {
