@@ -72,25 +72,61 @@ def horizontal_distance_units(points: Set[GridPoint]) -> float:
     return float(max(xs) - min(xs))
 
 
+def _offset_to_axial(row: int, col: int) -> Tuple[int, int]:
+    """偏移坐标 (row, col) 转轴向 (q, r)。与 point_to_xy(row,col) 的几何一致（奇数行偏半格）。"""
+    q = col - (row - (row & 1)) // 2
+    r_ax = row
+    return (q, r_ax)
+
+
 def hex_distance(r: int, c: int, center_r: int, center_c: int) -> int:
     """
-    轴向坐标 (r,c) 下的六边形距离（到中心 (center_r, center_c) 的步数）。
-    用于限定可放置区域为正六边形。
+    轴向坐标下的六边形距离。先做 (r,c) 偏移→轴向转换，再算距离。
+    用于限定可放置区域为正六边形（在几何上才是六边形，否则会呈菱形）。
     """
-    dr = r - center_r
-    dc = c - center_c
-    return (abs(dr) + abs(dc) + abs(dr + dc)) // 2
+    q, r_ax = _offset_to_axial(r, c)
+    q0, r0 = _offset_to_axial(center_r, center_c)
+    dq = q - q0
+    dr = r_ax - r0
+    return (abs(dq) + abs(dr) + abs(dq + dr)) // 2
 
 
 def in_hexagon(r: int, c: int, center_r: int, center_c: int, radius: int) -> bool:
-    """(r, c) 是否在以 (center_r, center_c) 为圆心、半径为 radius 的正六边形内（含边界）。"""
+    """(r, c) 是否在正六边形内（含边界）。可放置原子的格点仅限此正六边形内。"""
     return hex_distance(r, c, center_r, center_c) <= radius
+
+
+def _axial_to_offset(q: int, r_ax: int) -> Tuple[int, int]:
+    """轴向 (q, r_ax) 转偏移 (row, col)，与 _offset_to_axial 互逆。"""
+    row = r_ax
+    col = q + (row - (row & 1)) // 2
+    return (row, col)
+
+
+def hexagon_corners_offset(
+    center_r: int, center_c: int, radius: int
+) -> List[Tuple[int, int]]:
+    """
+    轴向六边形（hex_distance <= radius）在 offset 坐标下的 6 个角点。
+    顺序绕六边形一周，与 point_to_xy 几何一致，用于绘制与格点对齐的六边形。
+    """
+    q0, r0 = _offset_to_axial(center_r, center_c)
+    # 轴向六边形 6 个方向上的角点（轴向坐标）
+    corners_axial = [
+        (q0 + radius, r0),
+        (q0 + radius, r0 - radius),
+        (q0, r0 - radius),
+        (q0 - radius, r0),
+        (q0 - radius, r0 + radius),
+        (q0, r0 + radius),
+    ]
+    return [_axial_to_offset(q, r_ax) for q, r_ax in corners_axial]
 
 
 class TriangleGrid:
     """
-    正三角形网格的辅助类：生成指定范围内的格点、邻接、距离。
-    支持“正六边形”区域：仅六边形内的格点可放置，all_points 仅含六边形内点。
+    正三角形网格：格点、邻接、距离。
+    可放置原子的格点形成正六边形（hex_radius 控制大小，仅六边形内格点可放置）。
     """
 
     def __init__(

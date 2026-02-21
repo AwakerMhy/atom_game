@@ -673,12 +673,18 @@ def main():
                                     attack_enemy_cell = (opp, cell_i)
                                     atk_cell = state.cells[cur][attack_my_cell[1]]
                                     if combat.attack_beats_defense(atk_cell, defender_cell):
-                                        if getattr(state.config, "random_destroy_on_attack", False):
-                                            blacks = [
-                                                pt for pt in defender_cell.black_points()
-                                                if not state.is_black_protected(opp, cell_i, pt)
-                                            ]
-                                            if blacks:
+                                        blacks = [
+                                            pt for pt in defender_cell.black_points()
+                                            if not state.is_black_protected(opp, cell_i, pt)
+                                        ]
+                                        if not blacks and defender_cell.black_points():
+                                            # 攻>防但对方黑原子全部受保护：不破坏原子，仍造成 1 点伤害
+                                            state.hp[opp] = max(0, state.hp[opp] - 1)
+                                            state.turn_attack_used += 1
+                                            ui_sound.play_attack()
+                                            reset_action()
+                                            message = "攻击造成 1 点伤害（对方黑原子受保护，未破坏）"
+                                        elif getattr(state.config, "random_destroy_on_attack", False) and blacks:
                                                 pt = random.choice(blacks)
                                                 dmg, _ = combat.destroy_one_black_and_get_components(
                                                     atk_cell, defender_cell, pt
@@ -710,9 +716,6 @@ def main():
                                                         reset_action()
                                                         message = "进攻完成"
                                                 ui_sound.play_destroy()
-                                            else:
-                                                action_substate = "attack_choose_black"
-                                                message = "请点击要破坏的黑原子"
                                         else:
                                             action_substate = "attack_choose_black"
                                             message = "请点击要破坏的黑原子"

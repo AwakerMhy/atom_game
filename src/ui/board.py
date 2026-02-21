@@ -153,7 +153,7 @@ def draw_board(
             if blue_y > 0:
                 parts.append(f"蓝+{blue_y}黑")
             if green_y > 0:
-                parts.append(f"绿+{green_y}血")
+                parts.append(f"绿结束+{green_y}黑")
             if parts:
                 effect_str = "  ".join(parts)
                 for font_size in (12, 11, 10):
