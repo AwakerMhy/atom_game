@@ -69,6 +69,8 @@ export default function HUD({
   onConnectivityChoice,
 }) {
   const [showRules, setShowRules] = useState(false)
+  const [showEndPlaceConfirm, setShowEndPlaceConfirm] = useState(false)
+  const [showEndTurnConfirm, setShowEndTurnConfirm] = useState(false)
   const cur = state.currentPlayer
   const w = winner(state)
 
@@ -104,12 +106,14 @@ export default function HUD({
   }
 
   const handleEndPlace = () => {
+    setShowEndPlaceConfirm(false)
     updateState((s) => {
       endPlacePhase(s)
     })
   }
 
   const handleEndTurn = () => {
+    setShowEndTurnConfirm(false)
     updateState((s) => {
       applyGreenEndOfTurn(s, s.currentPlayer)
       endTurn(s)
@@ -118,6 +122,49 @@ export default function HUD({
   }
 
   return (
+    <>
+      {showEndPlaceConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-800 rounded-lg p-4 border border-amber-500/60 shadow-xl max-w-xs w-full">
+            <p className="text-gray-200 mb-4">确认结束排布？</p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setShowEndPlaceConfirm(false)}
+                className="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded text-sm"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleEndPlace}
+                className="px-3 py-2 bg-amber-600 hover:bg-amber-500 rounded text-sm"
+              >
+                确认
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showEndTurnConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-800 rounded-lg p-4 border border-sky-500/60 shadow-xl max-w-xs w-full">
+            <p className="text-gray-200 mb-4">确认结束回合？</p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setShowEndTurnConfirm(false)}
+                className="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded text-sm"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleEndTurn}
+                className="px-3 py-2 bg-sky-600 hover:bg-sky-500 rounded text-sm"
+              >
+                确认
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     <div className="fixed right-0 top-24 bottom-20 w-28 flex flex-col gap-2 py-4 pr-2 pl-2 bg-gray-900/90 border-l border-gray-700 z-20">
       <p className="text-xs text-gray-400 px-1 pb-2 border-b border-gray-600">
         {state.phase === PHASE_PLACE &&
@@ -141,7 +188,7 @@ export default function HUD({
             撤回
           </button>
           <button
-            onClick={handleEndPlace}
+            onClick={() => setShowEndPlaceConfirm(true)}
             className="px-3 py-2 bg-amber-600 hover:bg-amber-500 rounded text-sm w-full"
           >
             结束排布
@@ -169,7 +216,7 @@ export default function HUD({
       {state.phase === PHASE_ACTION && !connectivityChoice && (
         <>
           <button
-            onClick={handleEndTurn}
+            onClick={() => setShowEndTurnConfirm(true)}
             className="px-3 py-2 bg-sky-600 hover:bg-sky-500 rounded text-sm w-full"
           >
             结束回合
@@ -211,5 +258,6 @@ export default function HUD({
         </>
       )}
     </div>
+    </>
   )
 }

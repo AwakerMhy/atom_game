@@ -114,6 +114,7 @@ function CellView({
   }, [cell, gridPoints])
 
   const atoms = cell.allAtoms()
+  const occupiedPoints = useMemo(() => new Set(atoms.map(([[r, c]]) => `${r},${c}`)), [atoms])
   const atk = attackPower(cell)
   const def = defensePower(cell)
   let redY = 0
@@ -155,6 +156,7 @@ function CellView({
         {gridEdges.map(([[r1, c1], [r2, c2]], i) => {
           const p1 = toPx(r1, c1, scale, ox, oy)
           const p2 = toPx(r2, c2, scale, ox, oy)
+          const bothHaveAtom = occupiedPoints.has(`${r1},${c1}`) && occupiedPoints.has(`${r2},${c2}`)
           return (
             <line
               key={i}
@@ -163,7 +165,9 @@ function CellView({
               x2={p2.x}
               y2={p2.y}
               stroke="#5c6a7a"
-              strokeWidth={Math.max(1, scale * 0.08)}
+              strokeWidth={Math.max(1, scale * (bothHaveAtom ? 0.08 : 0.06))}
+              strokeOpacity={bothHaveAtom ? 1 : 0.28}
+              strokeDasharray={bothHaveAtom ? undefined : '3 4'}
             />
           )
         })}
@@ -188,7 +192,7 @@ function CellView({
           const fill = ATOM_COLORS[color] ?? '#888'
           return (
             <g key={`destroy-${r},${c}`} className="atom-destroying" style={{ transformOrigin: `${p.x}px ${p.y}px` }}>
-              <circle cx={p.x} cy={p.y} r={scale * 0.38} fill={fill} stroke="#333" />
+              <circle cx={p.x} cy={p.y} r={scale * 0.34} fill={fill} stroke="#333" />
             </g>
           )
         })}
@@ -201,12 +205,12 @@ function CellView({
           const protectedByBlue = color === ATOM_BLACK && state && isBlackProtected(state, player, cellIndex, [r, c])
           const yellowPriority = color === ATOM_BLACK && state && isBlackYellowPriority(state, player, cellIndex, [r, c])
           const bothBlueAndYellow = protectedByBlue && yellowPriority
-          const ringR = scale * 0.38
-          const ringW = scale * 0.07
+          const ringR = scale * 0.34
+          const ringW = scale * 0.06
           return (
             <g key={`${r},${c}`}>
               {compColor != null && (
-                <circle cx={p.x} cy={p.y} r={scale * 0.4} fill={compColor} fillOpacity={0.4} stroke={compColor} strokeWidth={2} />
+                <circle cx={p.x} cy={p.y} r={scale * 0.36} fill={compColor} fillOpacity={0.4} stroke={compColor} strokeWidth={2} />
               )}
               {bothBlueAndYellow ? (
                 <g>
@@ -226,7 +230,7 @@ function CellView({
               <circle
                 cx={p.x}
                 cy={p.y}
-                r={scale * 0.32}
+                r={scale * 0.28}
                 fill={fill}
                 stroke={protectedByBlue ? '#4678c8' : yellowPriority ? '#c8a832' : '#333'}
                 className={isEffectFlash ? 'atom-effect-flash' : undefined}
@@ -243,7 +247,7 @@ function CellView({
           const col = COMPONENT_COLORS[i % COMPONENT_COLORS.length]
           return (
             <g key={`comp-${i}`}>
-              <circle cx={cen.x} cy={cen.y} r={scale * 0.5} fill={col} fillOpacity={0.6} stroke={col} strokeWidth={2} />
+              <circle cx={cen.x} cy={cen.y} r={scale * 0.44} fill={col} fillOpacity={0.6} stroke={col} strokeWidth={2} />
               <text x={cen.x} y={cen.y} textAnchor="middle" dominantBaseline="middle" fill="#111" fontSize={scale * 0.5} fontWeight="bold">
                 {i + 1}
               </text>
