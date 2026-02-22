@@ -22,12 +22,9 @@ const CENTER_R = 50
 const CENTER_C = 50
 const HEX_RADIUS = 15
 
-function makeCells() {
-  return [
-    new Cell(GRID_ROWS, GRID_COLS, CENTER_R, CENTER_C, HEX_RADIUS),
-    new Cell(GRID_ROWS, GRID_COLS, CENTER_R, CENTER_C, HEX_RADIUS),
-    new Cell(GRID_ROWS, GRID_COLS, CENTER_R, CENTER_C, HEX_RADIUS),
-  ]
+function makeCells(count) {
+  const n = Math.max(2, Math.min(6, count ?? 3))
+  return Array.from({ length: n }, () => new Cell(GRID_ROWS, GRID_COLS, CENTER_R, CENTER_C, HEX_RADIUS))
 }
 
 export function createGameState(config = {}) {
@@ -36,16 +33,20 @@ export function createGameState(config = {}) {
     baseDrawCount: 10,
     basePlaceLimit: 10,
     drawWeights: [3, 1, 1, 1, 1],
+    initialHp: INITIAL_HP,
+    cellCount: 3,
     ...config,
   }
   const weights = Array.isArray(cfg.drawWeights) && cfg.drawWeights.length >= 5
     ? [...cfg.drawWeights]
     : [3, 1, 1, 1, 1]
+  const hpVal = Math.max(1, Math.min(99, cfg.initialHp ?? INITIAL_HP))
+  const cellCount = Math.max(2, Math.min(6, cfg.cellCount ?? 3))
   return {
     config: cfg,
     pools: [{ ...initialPool }, { ...initialPool }],
-    hp: [INITIAL_HP, INITIAL_HP],
-    cells: [makeCells(), makeCells()],
+    hp: [hpVal, hpVal],
+    cells: [makeCells(cellCount), makeCells(cellCount)],
     currentPlayer: 0,
     phase: PHASE_CONFIRM,
     phase0Choice: null,
@@ -136,5 +137,6 @@ export function getAttackableEnemyCellIndices(state) {
   if (yellowCells.length > 0) {
     return yellowCells.filter((i) => !state.cells[opp][i].isEmpty() && state.cells[opp][i].hasBlack())
   }
-  return [0, 1, 2].filter((i) => !state.cells[opp][i].isEmpty() && state.cells[opp][i].hasBlack())
+  const n = state.cells[opp].length
+  return Array.from({ length: n }, (_, i) => i).filter((i) => !state.cells[opp][i].isEmpty() && state.cells[opp][i].hasBlack())
 }

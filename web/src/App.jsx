@@ -104,6 +104,44 @@ function App() {
     })
   }, [])
 
+  const handleAttackConfirm = useCallback(() => {
+    if (!attackMyCell || !attackEnemyCell) return
+    const next = { ...state }
+    const ret = handleAttackEnemyCell(next, attackMyCell, attackEnemyCell)
+    setState(next)
+    setActionSubstate(ret.substate)
+    setAttackMessage(ret.message ?? '')
+    if (ret.destroyedAtoms?.length) triggerDestroyAnimation(ret.destroyedAtoms)
+    if (ret.substate === 'idle' && ret.attackConsumed !== false) {
+      updateState((s) => {
+        s.attackedCellsThisTurn = s.attackedCellsThisTurn ?? []
+        s.attackedCellsThisTurn.push([attackMyCell[0], attackMyCell[1]])
+      })
+      resetAttackState()
+    } else if (ret.substate === 'idle' && ret.attackConsumed === false) {
+      setAttackEnemyCell(null)
+      setActionSubstate('attack_my')
+      setAttackMessage('请点击对方格子进攻')
+    } else if (ret.substate === 'defender_choose_connected' && ret.connectivityChoice) {
+      const cc = ret.connectivityChoice
+      setConnectivityChoice(cc)
+      setPendingAction(ret.pendingAction ?? null)
+      setAttackMessage(
+        cc.type === 'all'
+          ? '步骤(1)：该格不连通，请选择要保留的连通子集'
+          : '步骤(2)：多个黑连通子集，请选择要保留的一个'
+      )
+      updateState((s) => { s.currentPlayer = cc.defender })
+    }
+  }, [state, attackMyCell, attackEnemyCell, updateState, resetAttackState, triggerDestroyAnimation])
+
+  const handleAttackCancel = useCallback(() => {
+    setAttackEnemyCell(null)
+    setAttackMyCell(null)
+    setActionSubstate('idle')
+    setAttackMessage('')
+  }, [])
+
   const handleConnectivityChoice = useCallback(
     (choiceIndex) => {
       const cc = connectivityChoice
@@ -231,32 +269,15 @@ function App() {
             }
           }
           if (player === opp && attackable.includes(cellIndex) && !state.cells[opp][cellIndex].isEmpty()) {
-            const enemyCell = [opp, cellIndex]
-            setAttackEnemyCell(enemyCell)
-            const next = { ...state }
-            const ret = handleAttackEnemyCell(next, attackMyCell, enemyCell)
-            setState(next)
-            setActionSubstate(ret.substate)
-            setAttackMessage(ret.message ?? '')
-            if (ret.destroyedAtoms?.length) triggerDestroyAnimation(ret.destroyedAtoms)
-            if (ret.substate === 'idle') {
-              updateState((s) => {
-                s.attackedCellsThisTurn = s.attackedCellsThisTurn ?? []
-                s.attackedCellsThisTurn.push([attackMyCell[0], attackMyCell[1]])
-              })
-              resetAttackState()
-            } else if (ret.substate === 'defender_choose_connected' && ret.connectivityChoice) {
-              const cc = ret.connectivityChoice
-              setConnectivityChoice(cc)
-              setPendingAction(ret.pendingAction ?? null)
-              setAttackMessage(
-                cc.type === 'all'
-                  ? '步骤(1)：该格不连通，请选择要保留的连通子集'
-                  : '步骤(2)：多个黑连通子集，请选择要保留的一个'
-              )
-              updateState((s) => { s.currentPlayer = cc.defender })
-            }
+            setAttackEnemyCell([opp, cellIndex])
+            setActionSubstate('attack_confirm')
+            setAttackMessage('确认进攻？')
+            return
           }
+          return
+        }
+
+        if (actionSubstate === 'attack_confirm' && attackMyCell && attackEnemyCell) {
           return
         }
 
@@ -264,7 +285,7 @@ function App() {
           const cell = state.cells[cur][cellIndex]
           if (!cell.isEmpty() && cell.hasBlack() && !hasCellAttackedThisTurn(state, cur, cellIndex)) {
             setAttackMyCell([cur, cellIndex])
-            const oppAllEmpty = [0, 1, 2].every((i) => state.cells[opp][i].isEmpty())
+            const oppAllEmpty = state.cells[opp].every((c) => c.isEmpty())
             if (oppAllEmpty) {
               setActionSubstate('direct_attack_confirm')
               setAttackMessage('对方三格皆空，是否要直接攻击？')
@@ -429,6 +450,9 @@ function App() {
           connectivityChoice={connectivityChoice}
           destroyingAtoms={destroyingAtoms}
           effectFlashAtom={effectFlashAtom}
+          actionSubstate={actionSubstate}
+          attackMyCell={attackMyCell}
+          attackEnemyCell={attackEnemyCell}
         />
       </main>
       <div className="fixed bottom-0 left-0 right-0 z-10">
@@ -474,6 +498,9 @@ function App() {
         updateState={updateState}
         actionSubstate={actionSubstate}
         attackMyCell={attackMyCell}
+        attackEnemyCell={attackEnemyCell}
+        onAttackConfirm={handleAttackConfirm}
+        onAttackCancel={handleAttackCancel}
         onDirectAttackConfirm={() => {
           if (attackMyCell) {
             updateState((s) => {

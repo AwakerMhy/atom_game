@@ -9,6 +9,8 @@ const DEFAULT_WEIGHTS = [3, 1, 1, 1, 1]
 export default function StartScreen({ onStart, defaultConfig = {} }) {
   const [baseDrawCount, setBaseDrawCount] = useState(defaultConfig.baseDrawCount ?? 10)
   const [basePlaceLimit, setBasePlaceLimit] = useState(defaultConfig.basePlaceLimit ?? 10)
+  const [initialHp, setInitialHp] = useState(defaultConfig.initialHp ?? 20)
+  const [cellCount, setCellCount] = useState(defaultConfig.cellCount ?? 3)
   const [drawWeights, setDrawWeights] = useState(
     () => defaultConfig.drawWeights && defaultConfig.drawWeights.length >= 5
       ? [...defaultConfig.drawWeights]
@@ -28,6 +30,8 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
     onStart({
       baseDrawCount: Math.max(1, Math.min(30, baseDrawCount)),
       basePlaceLimit: Math.max(1, Math.min(30, basePlaceLimit)),
+      initialHp: Math.max(1, Math.min(99, initialHp)),
+      cellCount: Math.max(2, Math.min(6, cellCount)),
       drawWeights: drawWeights.map((x) => Math.max(0, Math.min(20, x))),
     })
   }
@@ -57,6 +61,38 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
               <span className="w-10 text-right font-mono text-amber-400">{baseDrawCount}</span>
             </div>
             <p className="mt-0.5 text-xs text-gray-500">每回合开始时抽取的原子数量</p>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-300">双方玩家血量</label>
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min={1}
+                max={99}
+                value={initialHp}
+                onChange={(e) => setInitialHp(Number(e.target.value))}
+                className="flex-1"
+              />
+              <span className="w-10 text-right font-mono text-amber-400">{initialHp}</span>
+            </div>
+            <p className="mt-0.5 text-xs text-gray-500">每方初始生命值</p>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-300">双方格子数目</label>
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min={2}
+                max={6}
+                value={cellCount}
+                onChange={(e) => setCellCount(Number(e.target.value))}
+                className="flex-1"
+              />
+              <span className="w-10 text-right font-mono text-amber-400">{cellCount}</span>
+            </div>
+            <p className="mt-0.5 text-xs text-gray-500">每方场地格子数（2~6）</p>
           </div>
 
           <div>

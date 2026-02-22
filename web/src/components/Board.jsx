@@ -296,6 +296,9 @@ export default function Board({
   connectivityChoice = null,
   destroyingAtoms = [],
   effectFlashAtom = null,
+  actionSubstate = null,
+  attackMyCell = null,
+  attackEnemyCell = null,
 }) {
   const [viewPan, setViewPan] = useState({})
   const dragRef = useRef(null)
@@ -333,27 +336,28 @@ export default function Board({
   }, [onCellClick])
 
   const INFO_H = 44
+  const numCells = state.cells[0]?.length ?? 3
   const layout = useMemo(() => {
     const left = 24
     const top0 = 24
     const row1Y = 0
-    const row1 = Array.from({ length: 3 }, (_, i) => ({
+    const row1 = Array.from({ length: numCells }, (_, i) => ({
       x: left + i * (CELL_W + GAP),
       y: row1Y,
       w: CELL_W,
       h: CELL_H,
     }))
-    const row0 = Array.from({ length: 3 }, (_, i) => ({
+    const row0 = Array.from({ length: numCells }, (_, i) => ({
       x: left + i * (CELL_W + GAP),
       y: top0 + CELL_H + ROW_GAP,
       w: CELL_W,
       h: CELL_H,
     }))
     return [row0, row1]
-  }, [])
+  }, [numCells])
 
   const LABEL_H = 44
-  const width = 3 * CELL_W + 2 * GAP + 48
+  const width = numCells * CELL_W + Math.max(0, numCells - 1) * GAP + 48
   const height = 2 * (CELL_H + LABEL_H) + ROW_GAP + 24
 
   const p1Bottom = layout[1][0].y + CELL_H + INFO_H
@@ -365,8 +369,41 @@ export default function Board({
   const rowBlockH = CELL_H + INFO_H
   const highlightPad = 24
 
+  const showAttackArrow = actionSubstate === 'attack_confirm' && attackMyCell && attackEnemyCell
+  const attackFromRect = showAttackArrow ? layout[attackMyCell[0]][attackMyCell[1]] : null
+  const attackToRect = showAttackArrow ? layout[attackEnemyCell[0]][attackEnemyCell[1]] : null
+  const arrowFrom = attackFromRect
+    ? { x: attackFromRect.x + attackFromRect.w / 2, y: attackFromRect.y + attackFromRect.h / 2 }
+    : null
+  const arrowTo = attackToRect
+    ? { x: attackToRect.x + attackToRect.w / 2, y: attackToRect.y + attackToRect.h / 2 }
+    : null
+
   return (
     <svg width={width} height={height} className="select-none flex-shrink-0" style={{ overflow: 'visible' }}>
+      <defs>
+        <marker
+          id="attack-arrowhead"
+          markerWidth="10"
+          markerHeight="7"
+          refX="9"
+          refY="3.5"
+          orient="auto"
+        >
+          <polygon points="0 0, 10 3.5, 0 7" fill="#c84646" stroke="#8b2a2a" strokeWidth="1" />
+        </marker>
+      </defs>
+      {showAttackArrow && arrowFrom && arrowTo && (
+        <line
+          x1={arrowFrom.x}
+          y1={arrowFrom.y}
+          x2={arrowTo.x}
+          y2={arrowTo.y}
+          stroke="#c84646"
+          strokeWidth="3"
+          markerEnd="url(#attack-arrowhead)"
+        />
+      )}
       {currentPlayer === 1 && (
         <rect x={-highlightPad} y={layout[1][0].y} width={width + highlightPad * 2} height={rowBlockH} fill="rgba(100, 140, 200, 0.1)" rx={4} />
       )}

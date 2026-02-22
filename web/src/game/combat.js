@@ -242,7 +242,7 @@ export function applyEffectRedRandom(state, attacker, cellIndex, r, c, targetDef
     targetDefCellIndex != null && targetDefCellIndex >= 0 && targetDefCellIndex < defCells.length
       ? [targetDefCellIndex]
       : targetDefCellIndex == null
-        ? [0, 1, 2]
+        ? Array.from({ length: defCells.length }, (_, i) => i)
         : []
   cell.remove(r, c)
   const affectedCells = new Set()

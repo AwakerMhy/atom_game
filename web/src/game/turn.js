@@ -12,7 +12,7 @@ import {
   ATOM_BLACK,
 } from './config.js'
 import { drawAtoms } from './draw.js'
-import { xForTurn, playerCells } from './state.js'
+import { xForTurn } from './state.js'
 
 export function applyPhase0Choice(state, choice) {
   if (state.phase !== PHASE_CONFIRM || state.phase0Choice != null) return false
@@ -66,8 +66,13 @@ export function validatePlace(state, cellIndex, r, c, color) {
   if (cellIndex < 0 || cellIndex >= cells.length) return [false, '无效格子']
   const cell = cells[cellIndex]
   if (!cell.grid.inBounds(r, c) || cell.get(r, c) != null) return [false, '该格点已有原子或越界']
-  if (color !== ATOM_BLACK) {
-    const blacks = cell.blackPoints()
+  const blacks = cell.blackPoints()
+  if (color === ATOM_BLACK) {
+    if (blacks.size > 0) {
+      const hasBlackNeighbor = cell.grid.neighborsOf(r, c).some(([nr, nc]) => blacks.has(`${nr},${nc}`))
+      if (!hasBlackNeighbor) return [false, '黑原子必须与已有黑原子相邻']
+    }
+  } else {
     const hasBlackNeighbor = cell.grid.neighborsOf(r, c).some(([nr, nc]) => blacks.has(`${nr},${nc}`))
     if (!hasBlackNeighbor) return [false, '红/蓝/绿/黄必须与至少一个黑原子相邻']
   }

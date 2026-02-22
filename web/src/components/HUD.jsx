@@ -59,6 +59,9 @@ export default function HUD({
   updateState,
   actionSubstate,
   attackMyCell,
+  attackEnemyCell,
+  onAttackConfirm,
+  onAttackCancel,
   onDirectAttackConfirm,
   onDirectAttackCancel,
   attackMessage,
@@ -171,6 +174,23 @@ export default function HUD({
           >
             结束回合
           </button>
+          {actionSubstate === 'attack_confirm' && attackMyCell && attackEnemyCell && (
+            <>
+              <span className="text-xs text-amber-400 px-1">确认进攻？</span>
+              <button
+                onClick={onAttackConfirm}
+                className="px-3 py-2 bg-red-600 hover:bg-red-500 rounded text-sm w-full"
+              >
+                确认
+              </button>
+              <button
+                onClick={onAttackCancel}
+                className="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded text-sm w-full"
+              >
+                取消
+              </button>
+            </>
+          )}
           {actionSubstate === 'direct_attack_confirm' && attackMyCell && (
             <>
               <span className="text-xs text-amber-400 px-1">直接攻击？</span>

@@ -104,11 +104,13 @@ export function handleAttackEnemyCell(state, attackMyCell, attackEnemyCell) {
   const atkCell = state.cells[myP][myCi]
   const defCell = state.cells[enP][enCi]
   if (!attackBeatsDefense(atkCell, defCell)) {
-    return { substate: 'idle', message: '攻击力未大于防御力，无效果' }
+    return { substate: 'idle', message: '攻击力未大于防御力，无效果', attackConsumed: false }
   }
   if (defCell.blackPoints().size === 0) {
-    return { substate: 'idle', message: '该格无黑原子，无法进攻' }
+    return { substate: 'idle', message: '该格无黑原子，无法进攻', attackConsumed: false }
   }
-  return resolveAttackRandom(state, attackMyCell, attackEnemyCell)
+  const ret = resolveAttackRandom(state, attackMyCell, attackEnemyCell)
+  ret.attackConsumed = true
+  return ret
 }
 
