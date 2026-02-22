@@ -2,7 +2,7 @@
  * Attack/defense, destroy, connectivity, effects.
  */
 import { verticalDistanceUnits, horizontalDistanceUnits } from './grid.js'
-import { ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW } from './config.js'
+import { ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW, ATOM_PURPLE } from './config.js'
 
 export function attackPower(cell) {
   const blacks = cell.blackPoints()
@@ -20,15 +20,18 @@ export function attackBeatsDefense(attacker, defender) {
 
 /**
  * 蓝原子持续性：遭到进攻时，己方格蓝原子连接黑原子数目为 x，则降低可以破坏的原子数目 x（最低为 0）。
- * 即 extra = max(0, 红原子数 - x)，其中 x = 防守格所有蓝原子各自邻接黑原子数之和。
+ * 红方贡献 = 各红原子有效黑邻数之和（与紫相邻时用两跳黑邻）；蓝方 x = 各蓝原子有效黑邻数之和。
  */
 export function extraDestroys(attackerCell, defenderCell) {
-  const an = attackerCell.countByColor()[ATOM_RED] ?? 0
-  let x = 0
-  for (const [[r, c], color] of defenderCell.allAtoms()) {
-    if (color === ATOM_BLUE) x += defenderCell.countBlackNeighbors(r, c)
+  let redSum = 0
+  for (const [[r, c], color] of attackerCell.allAtoms()) {
+    if (color === ATOM_RED) redSum += attackerCell.effectiveBlackNeighborCount(r, c)
   }
-  return Math.max(0, an - x)
+  let blueSum = 0
+  for (const [[r, c], color] of defenderCell.allAtoms()) {
+    if (color === ATOM_BLUE) blueSum += defenderCell.effectiveBlackNeighborCount(r, c)
+  }
+  return Math.max(0, redSum - blueSum)
 }
 
 function shuffleArray(arr) {
@@ -214,8 +217,12 @@ export function applyEffectBlue(state, player, cellIndex, r, c) {
   if (cellIndex < 0 || cellIndex >= cells.length) return false
   const cell = cells[cellIndex]
   if (cell.get(r, c) !== ATOM_BLUE) return false
-  const protected_ = cell.blackNeighborsOf(r, c)
+  const protected_ = cell.effectiveBlackNeighborsOf(r, c)
+  const purpleNeighbors = cell.purpleNeighborPositions(r, c)
   cell.remove(r, c)
+  for (const [nr, nc] of purpleNeighbors) {
+    cell.remove(nr, nc)
+  }
   for (const k of protected_) {
     state.blueProtectedPoints[player].add(`${cellIndex}:${k}`)
   }
@@ -233,7 +240,7 @@ export function applyEffectRedRandom(state, attacker, cellIndex, r, c, targetDef
   if (cellIndex < 0 || cellIndex >= cells.length) return false
   const cell = cells[cellIndex]
   if (cell.get(r, c) !== ATOM_RED) return false
-  const y = cell.countBlackNeighbors(r, c)
+  const y = cell.effectiveBlackNeighborCount(r, c)
   if (y <= 0) return false
   const defender = 1 - attacker
   const defCells = state.cells[defender]
@@ -273,8 +280,12 @@ export function applyEffectYellow(state, player, cellIndex, r, c) {
   if (cellIndex < 0 || cellIndex >= cells.length) return false
   const cell = cells[cellIndex]
   if (cell.get(r, c) !== ATOM_YELLOW) return false
-  const priority_ = cell.blackNeighborsOf(r, c)
+  const priority_ = cell.effectiveBlackNeighborsOf(r, c)
+  const purpleNeighbors = cell.purpleNeighborPositions(r, c)
   cell.remove(r, c)
+  for (const [nr, nc] of purpleNeighbors) {
+    cell.remove(nr, nc)
+  }
   for (const k of priority_) {
     state.yellowPriorityPoints[player].add(`${cellIndex}:${k}`)
   }
@@ -287,8 +298,24 @@ export function applyEffectGreen(state, player, cellIndex, r, c) {
   if (cellIndex < 0 || cellIndex >= cells.length) return false
   const cell = cells[cellIndex]
   if (cell.get(r, c) !== ATOM_GREEN) return false
+  const extendToEmpty = cell.hasPurpleNeighbor(r, c)
+  const oneHopBlack = extendToEmpty ? cell.effectiveBlackNeighborsOf(r, c) : new Set()
+  const purpleNeighbors = cell.purpleNeighborPositions(r, c)
   cell.remove(r, c)
   cell.place(r, c, ATOM_BLACK)
+  if (extendToEmpty) {
+    for (const key of oneHopBlack) {
+      const [r1, c1] = key.split(',').map(Number)
+      for (const [nr, nc] of cell.grid.neighborsOf(r1, c1)) {
+        if (cell.get(nr, nc) == null && cell.grid.inBounds(nr, nc)) {
+          cell.place(nr, nc, ATOM_BLACK)
+        }
+      }
+    }
+  }
+  for (const [nr, nc] of purpleNeighbors) {
+    cell.remove(nr, nc)
+  }
   return true
 }
 
@@ -296,7 +323,7 @@ export function applyGreenEndOfTurn(state, player) {
   let total = 0
   for (const cell of state.cells[player]) {
     for (const [[r, c], color] of cell.allAtoms()) {
-      if (color === ATOM_GREEN) total += cell.countBlackNeighbors(r, c)
+      if (color === ATOM_GREEN) total += cell.effectiveBlackNeighborCount(r, c)
     }
   }
   if (total > 0) {

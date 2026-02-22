@@ -1,7 +1,7 @@
 /**
  * Single cell: grid point -> atom color, place/remove, connectivity.
  */
-import { COLORS, ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW } from './config.js'
+import { COLORS, ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW, ATOM_PURPLE } from './config.js'
 import { TriangleGrid } from './grid.js'
 
 export class Cell {
@@ -141,6 +141,96 @@ export class Cell {
       if (blacks.has(`${nr},${nc}`)) out.add(`${nr},${nc}`)
     }
     return out
+  }
+
+  /** 格点 (r,c) 是否与紫原子相邻 */
+  hasPurpleNeighbor(r, c) {
+    for (const [nr, nc] of this.grid.neighborsOf(r, c)) {
+      if (this.get(nr, nc) === ATOM_PURPLE) return true
+    }
+    return false
+  }
+
+  /** 格点 (r,c) 的紫原子邻居坐标列表 [[nr,nc], ...]，用于发动效果后一并移除 */
+  purpleNeighborPositions(r, c) {
+    const out = []
+    for (const [nr, nc] of this.grid.neighborsOf(r, c)) {
+      if (this.get(nr, nc) === ATOM_PURPLE) out.push([nr, nc])
+    }
+    return out
+  }
+
+  /** 格点 (r,c) 相邻的紫原子个数（多紫叠加时用于计算跳数 1+K） */
+  countPurpleNeighbors(r, c) {
+    let n = 0
+    for (const [nr, nc] of this.grid.neighborsOf(r, c)) {
+      if (this.get(nr, nc) === ATOM_PURPLE) n++
+    }
+    return n
+  }
+
+  /** 在仅黑格图上从 (r,c) 出发 BFS，得到「不超过 maxHops 跳」的黑格集合（1 跳 = 直接黑邻居） */
+  blackNeighborsWithinHops(r, c, maxHops) {
+    const blacks = this.blackPoints()
+    const result = new Set()
+    if (maxHops < 1) return result
+    let frontier = new Set()
+    for (const [nr, nc] of this.grid.neighborsOf(r, c)) {
+      const pk = `${nr},${nc}`
+      if (blacks.has(pk)) {
+        frontier.add(pk)
+        result.add(pk)
+      }
+    }
+    for (let step = 2; step <= maxHops && frontier.size > 0; step++) {
+      const next = new Set()
+      for (const key of frontier) {
+        const [r1, c1] = key.split(',').map(Number)
+        for (const [nr, nc] of this.grid.neighborsOf(r1, c1)) {
+          const pk = `${nr},${nc}`
+          if (blacks.has(pk) && !result.has(pk)) {
+            result.add(pk)
+            next.add(pk)
+          }
+        }
+      }
+      frontier = next
+    }
+    return result
+  }
+
+  /** 格点 (r,c) 的「黑原子邻居 ∪ 黑原子邻居的黑原子邻居」集合（用于与紫相邻的红/蓝/绿/黄效果扩展） */
+  twoHopBlackNeighborsOf(r, c) {
+    const blacks = this.blackPoints()
+    const oneHop = new Set()
+    for (const [nr, nc] of this.grid.neighborsOf(r, c)) {
+      if (blacks.has(`${nr},${nc}`)) oneHop.add(`${nr},${nc}`)
+    }
+    const twoHop = new Set(oneHop)
+    for (const key of oneHop) {
+      const [r1, c1] = key.split(',').map(Number)
+      for (const [nr, nc] of this.grid.neighborsOf(r1, c1)) {
+        const pk = `${nr},${nc}`
+        if (blacks.has(pk)) twoHop.add(pk)
+      }
+    }
+    return twoHop
+  }
+
+  /** 与紫相邻时用 (1+K) 跳黑邻居数（K=相邻紫数），否则用 countBlackNeighbors */
+  effectiveBlackNeighborCount(r, c) {
+    const color = this.get(r, c)
+    if (!color || color === ATOM_BLACK || color === ATOM_PURPLE) return 0
+    const k = this.countPurpleNeighbors(r, c)
+    if (k > 0) return this.blackNeighborsWithinHops(r, c, 1 + k).size
+    return this.countBlackNeighbors(r, c)
+  }
+
+  /** 与紫相邻时用 (1+K) 跳黑邻居集合（K=相邻紫数），否则用 blackNeighborsOf */
+  effectiveBlackNeighborsOf(r, c) {
+    const k = this.countPurpleNeighbors(r, c)
+    if (k > 0) return this.blackNeighborsWithinHops(r, c, 1 + k)
+    return this.blackNeighborsOf(r, c)
   }
 
   blackConnectedComponents() {

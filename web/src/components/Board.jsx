@@ -21,6 +21,7 @@ const ATOM_COLORS = {
   blue: '#4678c8',
   green: '#46a064',
   yellow: '#c8a832',
+  purple: '#7c3aed',
 }
 
 function toPx(r, c, scale, ox, oy) {
@@ -121,12 +122,14 @@ function CellView({
   let blueY = 0
   let greenY = 0
   let yellowY = 0
+  let purpleCount = 0
   for (const [[r, c], color] of atoms) {
-    const y = cell.countBlackNeighbors(r, c)
+    const y = cell.effectiveBlackNeighborCount(r, c)
     if (color === ATOM_RED) redY += y
     else if (color === ATOM_BLUE) blueY += y
     else if (color === ATOM_GREEN) greenY += y
     else if (color === ATOM_YELLOW) yellowY += y
+    else if (color === 'purple') purpleCount += 1
   }
 
   return (
@@ -280,7 +283,7 @@ function CellView({
         fill="#e2e8f0"
         fontSize="11"
       >
-        红: {redY}  蓝: {blueY}  绿: {greenY}  黄: {yellowY}
+        红: {redY}  蓝: {blueY}  绿: {greenY}  黄: {yellowY}  紫: {purpleCount}
       </text>
     </g>
   )

@@ -257,6 +257,9 @@ function App() {
               }
             })
             return
+          } else if (color === 'purple') {
+            setAttackMessage('紫原子无点击效果')
+            return
           }
         }
 
@@ -413,7 +416,7 @@ function App() {
             )}
             {!batchMode && (
             <div className="flex gap-2">
-            {['red', 'blue', 'green', 'yellow'].map((color) => (
+            {['red', 'blue', 'green', 'yellow', 'purple'].map((color) => (
               <button
                 key={color}
                 onClick={() =>
@@ -428,10 +431,12 @@ function App() {
                       ? 'bg-blue-700'
                       : color === 'green'
                         ? 'bg-green-700'
-                        : 'bg-yellow-600'
+                        : color === 'yellow'
+                          ? 'bg-yellow-600'
+                          : 'bg-violet-600'
                 }`}
               >
-                {color === 'red' ? '红' : color === 'blue' ? '蓝' : color === 'green' ? '绿' : '黄'}
+                {color === 'red' ? '红' : color === 'blue' ? '蓝' : color === 'green' ? '绿' : color === 'yellow' ? '黄' : '紫'}
               </button>
             ))}
             </div>
@@ -541,11 +546,11 @@ function PlayerBar({ state, player }) {
         <span className="text-sm text-gray-400">{hp}/{maxHp}</span>
       </div>
       <div className="flex gap-1">
-        {['black', 'red', 'blue', 'green', 'yellow'].map((color) => (
+        {['black', 'red', 'blue', 'green', 'yellow', 'purple'].map((color) => (
           <span
             key={color}
             className={`px-2 py-0.5 rounded text-xs ${
-              color === 'black' ? 'bg-gray-700' : color === 'red' ? 'bg-red-700' : color === 'blue' ? 'bg-blue-700' : color === 'green' ? 'bg-green-700' : 'bg-yellow-600'
+              color === 'black' ? 'bg-gray-700' : color === 'red' ? 'bg-red-700' : color === 'blue' ? 'bg-blue-700' : color === 'green' ? 'bg-green-700' : color === 'yellow' ? 'bg-yellow-600' : 'bg-violet-600'
             } text-white`}
           >
             {(p[color] ?? 0)}

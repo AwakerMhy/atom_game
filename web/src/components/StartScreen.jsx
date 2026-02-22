@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { COLORS } from '../game/config.js'
 
-const LABELS = { black: '黑', red: '红', blue: '蓝', green: '绿', yellow: '黄' }
-const BADGES = { black: 'bg-gray-800', red: 'bg-red-700', blue: 'bg-blue-700', green: 'bg-green-700', yellow: 'bg-amber-600' }
+const LABELS = { black: '黑', red: '红', blue: '蓝', green: '绿', yellow: '黄', purple: '紫' }
+const BADGES = { black: 'bg-gray-800', red: 'bg-red-700', blue: 'bg-blue-700', green: 'bg-green-700', yellow: 'bg-amber-600', purple: 'bg-violet-600' }
 
-const DEFAULT_WEIGHTS = [3, 1, 1, 1, 1]
+const DEFAULT_WEIGHTS = [3, 1, 1, 1, 1, 0]
 
 export default function StartScreen({ onStart, defaultConfig = {} }) {
   const [baseDrawCount, setBaseDrawCount] = useState(defaultConfig.baseDrawCount ?? 10)
@@ -12,17 +12,21 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
   const [initialHp, setInitialHp] = useState(defaultConfig.initialHp ?? 20)
   const [cellCount, setCellCount] = useState(defaultConfig.cellCount ?? 3)
   const [drawWeights, setDrawWeights] = useState(
-    () => defaultConfig.drawWeights && defaultConfig.drawWeights.length >= 5
-      ? [...defaultConfig.drawWeights]
-      : [...DEFAULT_WEIGHTS]
+    () => {
+      const w = defaultConfig.drawWeights
+      if (Array.isArray(w) && w.length >= 6) return [...w]
+      if (Array.isArray(w)) return [...w.slice(0, 5), w[5] ?? 0, ...Array(6 - w.length).fill(0)].slice(0, 6)
+      return [...DEFAULT_WEIGHTS]
+    }
   )
 
   const updateWeight = (index, value) => {
     const v = Math.max(0, Math.min(20, Number(value) || 0))
     setDrawWeights((w) => {
       const next = [...w]
+      if (index >= next.length) next.push(...Array(index - next.length + 1).fill(0))
       next[index] = v
-      return next
+      return next.slice(0, 6)
     })
   }
 

@@ -32,14 +32,14 @@ export function createGameState(config = {}) {
   const cfg = {
     baseDrawCount: 10,
     basePlaceLimit: 10,
-    drawWeights: [3, 1, 1, 1, 1],
+    drawWeights: [3, 1, 1, 1, 1, 0],
     initialHp: INITIAL_HP,
     cellCount: 3,
     ...config,
   }
-  const weights = Array.isArray(cfg.drawWeights) && cfg.drawWeights.length >= 5
-    ? [...cfg.drawWeights]
-    : [3, 1, 1, 1, 1]
+  const base = [3, 1, 1, 1, 1, 0]
+  const wIn = Array.isArray(cfg.drawWeights) ? cfg.drawWeights : base
+  const weights = wIn.length >= 6 ? wIn.slice(0, 6) : [...wIn.slice(0, 5), ...Array(6 - wIn.length).fill(0)].slice(0, 6)
   const hpVal = Math.max(1, Math.min(99, cfg.initialHp ?? INITIAL_HP))
   const cellCount = Math.max(2, Math.min(6, cfg.cellCount ?? 3))
   return {
