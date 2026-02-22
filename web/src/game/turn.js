@@ -66,6 +66,11 @@ export function validatePlace(state, cellIndex, r, c, color) {
   if (cellIndex < 0 || cellIndex >= cells.length) return [false, '无效格子']
   const cell = cells[cellIndex]
   if (!cell.grid.inBounds(r, c) || cell.get(r, c) != null) return [false, '该格点已有原子或越界']
+  if (color !== ATOM_BLACK) {
+    const blacks = cell.blackPoints()
+    const hasBlackNeighbor = cell.grid.neighborsOf(r, c).some(([nr, nc]) => blacks.has(`${nr},${nc}`))
+    if (!hasBlackNeighbor) return [false, '红/蓝/绿/黄必须与至少一个黑原子相邻']
+  }
   cell.place(r, c, color)
   if (!cell.isConnected()) {
     cell.remove(r, c)
@@ -91,11 +96,27 @@ export function applyPlace(state, cellIndex, r, c, color) {
   return true
 }
 
+/** 是否存在可撤回的非黑原子放置 */
+export function canUndoPlacement(state) {
+  const hist = state.placementHistory ?? []
+  return state.phase === PHASE_PLACE && hist.some((h) => h.color !== ATOM_BLACK)
+}
+
+/** 撤回最后一个非黑原子的放置；黑原子不可撤回 */
 export function undoLastPlacement(state) {
   const hist = state.placementHistory ?? []
   if (hist.length === 0) return false
   if (state.phase !== PHASE_PLACE) return false
-  const last = hist.pop()
+  let idx = -1
+  for (let i = hist.length - 1; i >= 0; i--) {
+    if (hist[i].color !== ATOM_BLACK) {
+      idx = i
+      break
+    }
+  }
+  if (idx < 0) return false
+  const last = hist[idx]
+  hist.splice(idx, 1)
   const cell = state.cells[last.player][last.cellIndex]
   cell.remove(last.r, last.c)
   state.pools[last.player][last.color] = (state.pools[last.player][last.color] ?? 0) + 1

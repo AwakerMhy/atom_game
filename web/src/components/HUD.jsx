@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { winner } from '../game/state.js'
-import { endPlacePhase, endTurn, startTurnDefault, undoLastPlacement } from '../game/turn.js'
+import { endPlacePhase, endTurn, startTurnDefault, undoLastPlacement, canUndoPlacement } from '../game/turn.js'
 import { applyGreenEndOfTurn } from '../game/combat.js'
 import { PHASE_CONFIRM, PHASE_PLACE, PHASE_ACTION } from '../game/config.js'
 
@@ -23,7 +23,7 @@ const RULES_OVERLAY_LINES = [
   "· 对方格子无黑原子：直接造成攻击力数值的伤害。",
   "",
   "四、原子排布",
-  "黑原子只能随机排布；红/蓝/绿/黄可选在已有黑原子的邻居位置放置。",
+  "黑原子只能随机排布；红/蓝/绿/黄必须至少与一个已有的黑原子相邻才能放置。",
   "非黑原子的效果取决于其所连接的黑原子数目。",
   "",
   "五、原子持续性效果",
@@ -132,7 +132,7 @@ export default function HUD({
         <>
           <button
             onClick={() => updateState((s) => undoLastPlacement(s))}
-            disabled={!(state.placementHistory?.length)}
+            disabled={!canUndoPlacement(state)}
             className="px-3 py-2 bg-gray-600 hover:bg-gray-500 disabled:opacity-40 disabled:cursor-not-allowed rounded text-sm w-full"
           >
             撤回
