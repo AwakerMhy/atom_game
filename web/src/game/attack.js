@@ -4,7 +4,7 @@
 import {
   attackBeatsDefense,
   extraDestroys,
-  destroyOneBlackAndGetComponents,
+  selectAndDestroyBlackTargets,
   getConnectivityChoice,
   clearCellIfNoBlack,
   resolveDirectAttack,
@@ -48,25 +48,34 @@ export function resolveAttackRandom(state, attackMyCell, attackEnemyCell) {
   const [enP, enCi] = attackEnemyCell
   const atkCell = state.cells[myP][myCi]
   let defCell = state.cells[enP][enCi]
-  const blacks = [...defCell.blackPoints()].filter(
-    (k) => !(state.blueProtectedPoints[enP]?.has(`${enCi}:${k}`) ?? false)
-  )
-  if (blacks.length === 0) {
+  const allBlacks = [...defCell.blackPoints()]
+  if (allBlacks.length === 0) {
     state.hp[enP] = Math.max(0, (state.hp[enP] ?? 0) - 1)
     state.turnAttackUsed++
     clearCellsWithNoBlack(state, enP)
-    return { substate: 'idle', message: '攻击造成 1 点伤害（对方黑原子受保护，未破坏）' }
+    return { substate: 'idle', message: '攻击造成 1 点伤害（该格无黑原子）', destroyedAtoms: [] }
   }
-  const ptKey = shuffleArray(blacks)[0]
-  const [dmg] = destroyOneBlackAndGetComponents(atkCell, defCell, ptKey)
-  state.hp[enP] = Math.max(0, (state.hp[enP] ?? 0) - dmg)
+  const { destroyedAtoms: firstDestroyed } = selectAndDestroyBlackTargets(state, enP, enCi, defCell, 1, true)
+  const destroyedAtoms = [...firstDestroyed]
+  state.hp[enP] = Math.max(0, (state.hp[enP] ?? 0) - 1)
   const extra = extraDestroys(atkCell, defCell)
   if (extra > 0 && !defCell.isEmpty()) {
-    const allPts = [...defCell.allAtoms()].map(([[r, c]]) => `${r},${c}`)
-    const toRemove = shuffleArray(allPts).slice(0, Math.min(extra, allPts.length))
-    for (const k of toRemove) {
-      const [r, c] = k.split(',').map(Number)
-      defCell.remove(r, c)
+    const allEntries = [...defCell.allAtoms()].map(([[r, c]]) => ({ pt: `${r},${c}`, r, c }))
+    const isRemovable = (ent) => {
+      const pt = ent.pt
+      const color = defCell.get(ent.r, ent.c)
+      if (color === 'black' && (state.blueProtectedPoints[enP]?.has(`${enCi}:${pt}`) ?? false)) return false
+      return true
+    }
+    const priorityRemovable = allEntries.filter((ent) => (state.yellowPriorityPoints?.[enP]?.has(`${enCi}:${ent.pt}`) ?? false) && isRemovable(ent))
+    const restRemovable = allEntries.filter((ent) => !(state.yellowPriorityPoints?.[enP]?.has(`${enCi}:${ent.pt}`) ?? false) && isRemovable(ent))
+    const toRemove = [
+      ...shuffleArray(priorityRemovable).slice(0, extra),
+      ...shuffleArray(restRemovable).slice(0, Math.max(0, extra - priorityRemovable.length)),
+    ].slice(0, extra)
+    for (const ent of toRemove) {
+      destroyedAtoms.push({ defender: enP, cellIndex: enCi, r: ent.r, c: ent.c, color: defCell.get(ent.r, ent.c) ?? 'black' })
+      defCell.remove(ent.r, ent.c)
     }
   }
   // 攻击破坏结束后立即检查是否产生多个连通子集，若有则需被破坏方选择
@@ -77,11 +86,12 @@ export function resolveAttackRandom(state, attackMyCell, attackEnemyCell) {
       message: '请选择要保留的连通子集',
       connectivityChoice: { defender: enP, cellIndex: enCi, ...choice },
       pendingAction: 'attack',
+      destroyedAtoms,
     }
   }
   clearCellsWithNoBlack(state, enP)
   state.turnAttackUsed++
-  return { substate: 'idle', message: '进攻完成' }
+  return { substate: 'idle', message: '进攻完成', destroyedAtoms }
 }
 
 /**
@@ -96,14 +106,8 @@ export function handleAttackEnemyCell(state, attackMyCell, attackEnemyCell) {
   if (!attackBeatsDefense(atkCell, defCell)) {
     return { substate: 'idle', message: '攻击力未大于防御力，无效果' }
   }
-  const blacks = [...defCell.blackPoints()].filter(
-    (k) => !(state.blueProtectedPoints[enP]?.has(`${enCi}:${k}`) ?? false)
-  )
-  if (blacks.length === 0 && defCell.blackPoints().size > 0) {
-    state.hp[enP] = Math.max(0, (state.hp[enP] ?? 0) - 1)
-    state.turnAttackUsed++
-    clearCellsWithNoBlack(state, enP)
-    return { substate: 'idle', message: '攻击造成 1 点伤害（对方黑原子受保护，未破坏）' }
+  if (defCell.blackPoints().size === 0) {
+    return { substate: 'idle', message: '该格无黑原子，无法进攻' }
   }
   return resolveAttackRandom(state, attackMyCell, attackEnemyCell)
 }

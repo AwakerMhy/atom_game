@@ -7,6 +7,7 @@ import {
   ATOM_RED,
   ATOM_BLUE,
   ATOM_GREEN,
+  ATOM_YELLOW,
   INITIAL_HP,
   INITIAL_POOL,
   PHASE_CONFIRM,
@@ -31,24 +32,28 @@ function makeCells() {
 
 export function createGameState(config = {}) {
   const initialPool = { ...INITIAL_POOL }
+  const cfg = {
+    baseDrawCount: 10,
+    basePlaceLimit: 10,
+    drawWeights: [3, 1, 1, 1, 1],
+    ...config,
+  }
+  const weights = Array.isArray(cfg.drawWeights) && cfg.drawWeights.length >= 5
+    ? [...cfg.drawWeights]
+    : [3, 1, 1, 1, 1]
   return {
-    config: {
-      baseDrawCount: 10,
-      basePlaceLimit: 10,
-      drawWeights: [3, 1, 1, 1],
-      ...config,
-    },
+    config: cfg,
     pools: [{ ...initialPool }, { ...initialPool }],
     hp: [INITIAL_HP, INITIAL_HP],
     cells: [makeCells(), makeCells()],
     currentPlayer: 0,
     phase: PHASE_CONFIRM,
     phase0Choice: null,
-    baseDrawCount: 10,
-    basePlaceLimit: 10,
-    drawWeights: [3, 1, 1, 1],
-    turnDrawCount: 10,
-    turnPlaceLimit: 10,
+    baseDrawCount: cfg.baseDrawCount,
+    basePlaceLimit: cfg.basePlaceLimit,
+    drawWeights: weights,
+    turnDrawCount: cfg.baseDrawCount,
+    turnPlaceLimit: cfg.basePlaceLimit,
     turnAttackLimit: 1,
     turnPlacedCount: 0,
     turnAttackUsed: 0,
@@ -57,6 +62,8 @@ export function createGameState(config = {}) {
     isFirstTurn: true,
     blueProtectedPoints: { 0: new Set(), 1: new Set() },
     blueProtectionUntilTurn: {},
+    yellowPriorityPoints: { 0: new Set(), 1: new Set() },
+    yellowPriorityUntilTurn: {},
     placementHistory: [],
   }
 }
@@ -106,4 +113,28 @@ export function winner(state) {
 export function isBlackProtected(state, player, cellIndex, pt) {
   const pk = typeof pt === 'string' ? pt : `${pt[0]},${pt[1]}`
   return state.blueProtectedPoints[player]?.has(`${cellIndex}:${pk}`) ?? false
+}
+
+export function isBlackYellowPriority(state, player, cellIndex, pt) {
+  const pk = typeof pt === 'string' ? pt : `${pt[0]},${pt[1]}`
+  return state.yellowPriorityPoints[player]?.has(`${cellIndex}:${pk}`) ?? false
+}
+
+/** 返回该玩家有黄原子的格子索引列表 */
+export function cellsWithYellow(state, player) {
+  const out = []
+  for (let i = 0; i < state.cells[player].length; i++) {
+    if (state.cells[player][i].hasYellow()) out.push(i)
+  }
+  return out
+}
+
+/** 进攻时可选的对方格子索引。若对方有黄原子格，则只能选有黄原子的格；否则可选有黑原子的格 */
+export function getAttackableEnemyCellIndices(state) {
+  const opp = 1 - state.currentPlayer
+  const yellowCells = cellsWithYellow(state, opp)
+  if (yellowCells.length > 0) {
+    return yellowCells.filter((i) => !state.cells[opp][i].isEmpty() && state.cells[opp][i].hasBlack())
+  }
+  return [0, 1, 2].filter((i) => !state.cells[opp][i].isEmpty() && state.cells[opp][i].hasBlack())
 }

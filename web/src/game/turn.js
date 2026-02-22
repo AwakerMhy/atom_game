@@ -205,5 +205,8 @@ export function endTurn(state) {
     if (state.blueProtectionUntilTurn[p] != null && state.turnNumber >= state.blueProtectionUntilTurn[p]) {
       state.blueProtectedPoints[p] = new Set()
     }
+    if (state.yellowPriorityUntilTurn[p] != null && state.turnNumber >= state.yellowPriorityUntilTurn[p]) {
+      state.yellowPriorityPoints[p] = new Set()
+    }
   }
 }

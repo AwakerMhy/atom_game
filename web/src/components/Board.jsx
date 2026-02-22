@@ -2,8 +2,8 @@ import { useMemo, useState, useRef, useCallback } from 'react'
 import { pointToXy, neighbors, distanceBetween } from '../game/grid.js'
 import { pixelToGrid } from '../utils/hex.js'
 import { attackPower, defensePower } from '../game/combat.js'
-import { ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN } from '../game/config.js'
-import { isBlackProtected } from '../game/state.js'
+import { ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW } from '../game/config.js'
+import { isBlackProtected, isBlackYellowPriority } from '../game/state.js'
 
 const CELL_SIDE = 200
 const CELL_W = CELL_SIDE
@@ -20,6 +20,7 @@ const ATOM_COLORS = {
   red: '#c84646',
   blue: '#4678c8',
   green: '#46a064',
+  yellow: '#c8a832',
 }
 
 function toPx(r, c, scale, ox, oy) {
@@ -48,6 +49,8 @@ function CellView({
   interactionMode,
   isAttackHighlight,
   connectivityChoiceCell,
+  destroyingAtoms = [],
+  effectFlashAtom = null,
 }) {
   const { x, y, w, h } = rect
   const denom = Math.max(3, Math.min(10, gridScaleDenom ?? 4))
@@ -116,11 +119,13 @@ function CellView({
   let redY = 0
   let blueY = 0
   let greenY = 0
+  let yellowY = 0
   for (const [[r, c], color] of atoms) {
     const y = cell.countBlackNeighbors(r, c)
     if (color === ATOM_RED) redY += y
     else if (color === ATOM_BLUE) blueY += y
     else if (color === ATOM_GREEN) greenY += y
+    else if (color === ATOM_YELLOW) yellowY += y
   }
 
   return (
@@ -178,26 +183,53 @@ function CellView({
             />
           )
         })}
+        {destroyingAtoms.map(({ r, c, color }) => {
+          const p = toPx(r, c, scale, ox, oy)
+          const fill = ATOM_COLORS[color] ?? '#888'
+          return (
+            <g key={`destroy-${r},${c}`} className="atom-destroying" style={{ transformOrigin: `${p.x}px ${p.y}px` }}>
+              <circle cx={p.x} cy={p.y} r={scale * 0.38} fill={fill} stroke="#333" />
+            </g>
+          )
+        })}
         {atoms.map(([[r, c], color]) => {
           const p = toPx(r, c, scale, ox, oy)
           const fill = ATOM_COLORS[color] ?? '#888'
+          const isEffectFlash = effectFlashAtom && effectFlashAtom.player === player && effectFlashAtom.cellIndex === cellIndex && effectFlashAtom.r === r && effectFlashAtom.c === c
           const compIdx = connectivityChoiceCell?.components?.findIndex((comp) => comp.includes(`${r},${c}`))
           const compColor = compIdx >= 0 ? COMPONENT_COLORS[compIdx % COMPONENT_COLORS.length] : null
           const protectedByBlue = color === ATOM_BLACK && state && isBlackProtected(state, player, cellIndex, [r, c])
+          const yellowPriority = color === ATOM_BLACK && state && isBlackYellowPriority(state, player, cellIndex, [r, c])
+          const bothBlueAndYellow = protectedByBlue && yellowPriority
+          const ringR = scale * 0.38
+          const ringW = scale * 0.07
           return (
             <g key={`${r},${c}`}>
               {compColor != null && (
                 <circle cx={p.x} cy={p.y} r={scale * 0.4} fill={compColor} fillOpacity={0.4} stroke={compColor} strokeWidth={2} />
               )}
-              {protectedByBlue && (
-                <circle cx={p.x} cy={p.y} r={scale * 0.38} fill="none" stroke="#4678c8" strokeWidth={scale * 0.08} strokeOpacity={0.9} />
+              {bothBlueAndYellow ? (
+                <g>
+                  <circle cx={p.x} cy={p.y} r={ringR} fill="none" stroke="#c8a832" strokeWidth={ringW} strokeOpacity={0.9} strokeDasharray="6 6" strokeDashoffset={0} />
+                  <circle cx={p.x} cy={p.y} r={ringR} fill="none" stroke="#4678c8" strokeWidth={ringW} strokeOpacity={0.9} strokeDasharray="6 6" strokeDashoffset={6} />
+                </g>
+              ) : (
+                <>
+                  {yellowPriority && (
+                    <circle cx={p.x} cy={p.y} r={ringR} fill="none" stroke="#c8a832" strokeWidth={ringW} strokeOpacity={0.9} />
+                  )}
+                  {protectedByBlue && (
+                    <circle cx={p.x} cy={p.y} r={ringR} fill="none" stroke="#4678c8" strokeWidth={ringW} strokeOpacity={0.9} />
+                  )}
+                </>
               )}
               <circle
                 cx={p.x}
                 cy={p.y}
                 r={scale * 0.32}
                 fill={fill}
-                stroke={protectedByBlue ? '#4678c8' : '#333'}
+                stroke={protectedByBlue ? '#4678c8' : yellowPriority ? '#c8a832' : '#333'}
+                className={isEffectFlash ? 'atom-effect-flash' : undefined}
               />
             </g>
           )
@@ -244,7 +276,7 @@ function CellView({
         fill="#e2e8f0"
         fontSize="11"
       >
-        红: {redY}  蓝: {blueY}  绿: {greenY}
+        红: {redY}  蓝: {blueY}  绿: {greenY}  黄: {yellowY}
       </text>
     </g>
   )
@@ -262,6 +294,8 @@ export default function Board({
   interactionMode = 'operate',
   attackHighlightCell = null,
   connectivityChoice = null,
+  destroyingAtoms = [],
+  effectFlashAtom = null,
 }) {
   const [viewPan, setViewPan] = useState({})
   const dragRef = useRef(null)
@@ -325,8 +359,8 @@ export default function Board({
   const p1Bottom = layout[1][0].y + CELL_H + INFO_H
   const p0Top = layout[0][0].y
   const dividerY = (p1Bottom + p0Top) / 2
-  const dividerLeft = 24
-  const dividerRight = 24 + 3 * CELL_W + 2 * GAP
+  const dividerLeft = -32
+  const dividerRight = width + 32
   const currentPlayer = state.currentPlayer
   const rowBlockH = CELL_H + INFO_H
   const highlightPad = 24
@@ -361,6 +395,8 @@ export default function Board({
           onPan={handlePan}
           onDragEnd={handleDragEnd}
           isAttackHighlight={attackHighlightCell?.player === 1 && attackHighlightCell?.cellIndex === i}
+          destroyingAtoms={destroyingAtoms.filter((d) => d.defender === 1 && d.cellIndex === i)}
+          effectFlashAtom={effectFlashAtom}
         />
       ))}
       <line x1={dividerLeft} y1={dividerY} x2={dividerRight} y2={dividerY} stroke="#555" strokeWidth={1} strokeDasharray="4 4" />
@@ -386,6 +422,8 @@ export default function Board({
           onPan={handlePan}
           onDragEnd={handleDragEnd}
           isAttackHighlight={attackHighlightCell?.player === 0 && attackHighlightCell?.cellIndex === i}
+          destroyingAtoms={destroyingAtoms.filter((d) => d.defender === 0 && d.cellIndex === i)}
+          effectFlashAtom={effectFlashAtom}
         />
       ))}
     </svg>

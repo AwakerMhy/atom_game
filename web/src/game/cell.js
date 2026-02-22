@@ -1,7 +1,7 @@
 /**
  * Single cell: grid point -> atom color, place/remove, connectivity.
  */
-import { COLORS, ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN } from './config.js'
+import { COLORS, ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW } from './config.js'
 import { TriangleGrid } from './grid.js'
 
 export class Cell {
@@ -79,6 +79,13 @@ export class Cell {
   hasBlack() {
     for (const c of this._atoms.values()) {
       if (c === ATOM_BLACK) return true
+    }
+    return false
+  }
+
+  hasYellow() {
+    for (const c of this._atoms.values()) {
+      if (c === ATOM_YELLOW) return true
     }
     return false
   }

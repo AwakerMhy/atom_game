@@ -12,3 +12,31 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+@keyframes atom-destroy {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes atom-effect-flash {
+  0%, 100% {
+    opacity: 1;
+    filter: brightness(1);
+  }
+  50% {
+    opacity: 1;
+    filter: brightness(1.8);
+  }
+}
+
+.atom-destroying {
+  animation: atom-destroy 0.35s ease-out forwards;
+}
+
+.atom-effect-flash {
+  animation: atom-effect-flash 0.3s ease-out;
+}

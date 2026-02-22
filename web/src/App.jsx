@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { createGameState, pool, canAttackThisTurn, opponent, hasCellAttackedThisTurn } from './game/state.js'
+import { createGameState, pool, canAttackThisTurn, opponent, hasCellAttackedThisTurn, getAttackableEnemyCellIndices } from './game/state.js'
 import { startTurnDefault } from './game/turn.js'
 import { applyPlace, batchPlaceOnCell } from './game/turn.js'
 import {
@@ -8,18 +8,28 @@ import {
   handleAttackEnemyCell,
   clearCellsWithNoBlack,
 } from './game/attack.js'
-import { applyEffectBlue, applyEffectGreen, applyEffectRedRandom, getConnectivityChoice, applyConnectivityChoice } from './game/combat.js'
+import { applyEffectBlue, applyEffectGreen, applyEffectYellow, applyEffectRedRandom, getConnectivityChoice, applyConnectivityChoice } from './game/combat.js'
 import { PHASE_PLACE, PHASE_ACTION, INITIAL_HP, ATOM_BLACK } from './game/config.js'
 import { Cell } from './game/cell.js'
 import Board from './components/Board.jsx'
 import HUD from './components/HUD.jsx'
+import StartScreen from './components/StartScreen.jsx'
+import { playDestroySound, playEffectSound } from './utils/sound.js'
 
 function App() {
+  const [inGame, setInGame] = useState(false)
   const [state, setState] = useState(() => {
     const s = createGameState()
     startTurnDefault(s)
     return s
   })
+
+  const handleStartGame = useCallback((config) => {
+    const s = createGameState(config)
+    startTurnDefault(s)
+    setState(s)
+    setInGame(true)
+  }, [])
   const [selectedColor, setSelectedColor] = useState(null)
   const [batchMode, setBatchMode] = useState(false)
   const [batchCount, setBatchCount] = useState(1)
@@ -32,7 +42,10 @@ function App() {
   const [attackMessage, setAttackMessage] = useState('')
   const [connectivityChoice, setConnectivityChoice] = useState(null)
   const [pendingAction, setPendingAction] = useState(null)
+  const [destroyingAtoms, setDestroyingAtoms] = useState([])
+  const [effectFlashAtom, setEffectFlashAtom] = useState(null)
   const nextConnectivityChoiceRef = useRef(null)
+  const destroyTimeoutRef = useRef(null)
 
   const maxBatch = state.phase === PHASE_PLACE
     ? Math.min(pool(state, state.currentPlayer).black ?? 0, state.turnPlaceLimit - state.turnPlacedCount)
@@ -54,11 +67,33 @@ function App() {
     }
   }, [state.phase])
 
+  useEffect(() => () => {
+    if (destroyTimeoutRef.current) clearTimeout(destroyTimeoutRef.current)
+  }, [])
+
   const resetAttackState = useCallback(() => {
     setActionSubstate('idle')
     setAttackMyCell(null)
     setAttackEnemyCell(null)
     setRedEffectSource(null)
+  }, [])
+
+  const triggerDestroyAnimation = useCallback((destroyedAtoms) => {
+    if (destroyedAtoms?.length) {
+      if (destroyTimeoutRef.current) clearTimeout(destroyTimeoutRef.current)
+      playDestroySound()
+      setDestroyingAtoms(destroyedAtoms)
+      destroyTimeoutRef.current = setTimeout(() => {
+        setDestroyingAtoms([])
+        destroyTimeoutRef.current = null
+      }, 380)
+    }
+  }, [])
+
+  const triggerEffectFlash = useCallback((player, cellIndex, r, c) => {
+    playEffectSound()
+    setEffectFlashAtom({ player, cellIndex, r, c })
+    setTimeout(() => setEffectFlashAtom(null), 320)
   }, [])
 
   const updateState = useCallback((updater) => {
@@ -127,6 +162,7 @@ function App() {
             setState(next)
             setActionSubstate('idle')
             setRedEffectSource(null)
+            if (result?.destroyedAtoms?.length) triggerDestroyAnimation(result.destroyedAtoms)
             if (result && typeof result === 'object' && result.ok) {
               if (result.connectivityChoice) {
                 const cc = result.connectivityChoice
@@ -162,6 +198,7 @@ function App() {
           } else if (color === 'blue') {
             updateState((s) => {
               if (applyEffectBlue(s, cur, cellIndex, r, c)) {
+                triggerEffectFlash(cur, cellIndex, r, c)
                 setAttackMessage('蓝效果：相邻黑原子下一回合内不可被破坏')
               }
             })
@@ -169,7 +206,16 @@ function App() {
           } else if (color === 'green') {
             updateState((s) => {
               if (applyEffectGreen(s, cur, cellIndex, r, c)) {
+                triggerEffectFlash(cur, cellIndex, r, c)
                 setAttackMessage('绿效果：该格点变为黑原子')
+              }
+            })
+            return
+          } else if (color === 'yellow') {
+            updateState((s) => {
+              if (applyEffectYellow(s, cur, cellIndex, r, c)) {
+                triggerEffectFlash(cur, cellIndex, r, c)
+                setAttackMessage('黄效果：相邻黑原子下回合内优先被破坏')
               }
             })
             return
@@ -177,7 +223,14 @@ function App() {
         }
 
         if (actionSubstate === 'attack_my' && attackMyCell) {
-          if (player === opp && !state.cells[opp][cellIndex].isEmpty()) {
+          const attackable = getAttackableEnemyCellIndices(state)
+          if (player === opp) {
+            if (!attackable.includes(cellIndex)) {
+              setAttackMessage('对方有黄原子时，只能攻击有黄原子的格子')
+              return
+            }
+          }
+          if (player === opp && attackable.includes(cellIndex) && !state.cells[opp][cellIndex].isEmpty()) {
             const enemyCell = [opp, cellIndex]
             setAttackEnemyCell(enemyCell)
             const next = { ...state }
@@ -185,6 +238,7 @@ function App() {
             setState(next)
             setActionSubstate(ret.substate)
             setAttackMessage(ret.message ?? '')
+            if (ret.destroyedAtoms?.length) triggerDestroyAnimation(ret.destroyedAtoms)
             if (ret.substate === 'idle') {
               updateState((s) => {
                 s.attackedCellsThisTurn = s.attackedCellsThisTurn ?? []
@@ -274,8 +328,14 @@ function App() {
       attackMyCell,
       redEffectSource,
       resetAttackState,
+      triggerDestroyAnimation,
+      triggerEffectFlash,
     ]
   )
+
+  if (!inGame) {
+    return <StartScreen onStart={handleStartGame} defaultConfig={state?.config} />
+  }
 
   return (
     <div className="min-h-screen bg-bg text-gray-200 flex flex-col">
@@ -284,6 +344,12 @@ function App() {
       </div>
       <header className="pt-16 pb-2 px-4 border-b border-gray-700 flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => setInGame(false)}
+            className="px-3 py-1 rounded text-sm bg-gray-600 hover:bg-gray-500"
+          >
+            主菜单
+          </button>
           <button
             onClick={() => setInteractionMode((m) => (m === 'drag' ? 'operate' : 'drag'))}
             className={`px-3 py-1 rounded text-sm ${interactionMode === 'drag' ? 'bg-sky-600 ring-2 ring-sky-400' : 'bg-gray-600'}`}
@@ -326,7 +392,7 @@ function App() {
             )}
             {!batchMode && (
             <div className="flex gap-2">
-            {['red', 'blue', 'green'].map((color) => (
+            {['red', 'blue', 'green', 'yellow'].map((color) => (
               <button
                 key={color}
                 onClick={() =>
@@ -339,10 +405,12 @@ function App() {
                     ? 'bg-red-700'
                     : color === 'blue'
                       ? 'bg-blue-700'
-                      : 'bg-green-700'
+                      : color === 'green'
+                        ? 'bg-green-700'
+                        : 'bg-yellow-600'
                 }`}
               >
-                {color === 'red' ? '红' : color === 'blue' ? '蓝' : '绿'}
+                {color === 'red' ? '红' : color === 'blue' ? '蓝' : color === 'green' ? '绿' : '黄'}
               </button>
             ))}
             </div>
@@ -359,6 +427,8 @@ function App() {
           interactionMode={interactionMode}
           attackHighlightCell={attackMyCell ? { player: attackMyCell[0], cellIndex: attackMyCell[1] } : null}
           connectivityChoice={connectivityChoice}
+          destroyingAtoms={destroyingAtoms}
+          effectFlashAtom={effectFlashAtom}
         />
       </main>
       <div className="fixed bottom-0 left-0 right-0 z-10">
@@ -444,11 +514,11 @@ function PlayerBar({ state, player }) {
         <span className="text-sm text-gray-400">{hp}/{maxHp}</span>
       </div>
       <div className="flex gap-1">
-        {['black', 'red', 'blue', 'green'].map((color) => (
+        {['black', 'red', 'blue', 'green', 'yellow'].map((color) => (
           <span
             key={color}
             className={`px-2 py-0.5 rounded text-xs ${
-              color === 'black' ? 'bg-gray-700' : color === 'red' ? 'bg-red-700' : color === 'blue' ? 'bg-blue-700' : 'bg-green-700'
+              color === 'black' ? 'bg-gray-700' : color === 'red' ? 'bg-red-700' : color === 'blue' ? 'bg-blue-700' : color === 'green' ? 'bg-green-700' : 'bg-yellow-600'
             } text-white`}
           >
             {(p[color] ?? 0)}

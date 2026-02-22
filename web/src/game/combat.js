@@ -2,7 +2,7 @@
  * Attack/defense, destroy, connectivity, effects.
  */
 import { verticalDistanceUnits, horizontalDistanceUnits } from './grid.js'
-import { ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN } from './config.js'
+import { ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW } from './config.js'
 
 export function attackPower(cell) {
   const blacks = cell.blackPoints()
@@ -29,6 +29,59 @@ export function extraDestroys(attackerCell, defenderCell) {
     if (color === ATOM_BLUE) x += defenderCell.countBlackNeighbors(r, c)
   }
   return Math.max(0, an - x)
+}
+
+function shuffleArray(arr) {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
+/**
+ * 选取黑原子破坏目标（攻击/红效果通用）。
+ * 规则：要破坏 x 个黑原子时：
+ * - 若无黄高亮黑原子：从该格所有黑原子中无放回随机抽 x 个作为目标；
+ * - 若有 y 个黄高亮黑原子且 x>=y：先确定这 y 个为目标，再从其余黑原子中随机抽 x-y 个；
+ * - 若有 y 个黄高亮黑原子且 x<y：从这 y 个中随机抽 x 个作为目标。
+ * 选中的目标若被蓝保护则不实际破坏。
+ * 返回 { results: [{ ptKey, destroyed }], destroyedAtoms: [{ defender, cellIndex, r, c, color }] }
+ */
+export function selectAndDestroyBlackTargets(state, defender, cellIndex, defCell, x, actuallyDestroy = true) {
+  const allBlacks = [...defCell.blackPoints()]
+  const yellowPriority = allBlacks.filter((k) => state.yellowPriorityPoints?.[defender]?.has(`${cellIndex}:${k}`) ?? false)
+  const otherBlacks = allBlacks.filter((k) => !yellowPriority.includes(k))
+  const y = yellowPriority.length
+
+  let targets = []
+  if (y === 0) {
+    targets = shuffleArray(allBlacks).slice(0, Math.min(x, allBlacks.length))
+  } else if (x >= y) {
+    targets = [...shuffleArray(yellowPriority)]
+    const needMore = x - y
+    if (needMore > 0 && otherBlacks.length > 0) {
+      targets.push(...shuffleArray(otherBlacks).slice(0, Math.min(needMore, otherBlacks.length)))
+    }
+  } else {
+    targets = shuffleArray(yellowPriority).slice(0, Math.min(x, yellowPriority.length))
+  }
+
+  const results = []
+  const destroyedAtoms = []
+  for (const ptKey of targets) {
+    const protected_ = state.blueProtectedPoints?.[defender]?.has(`${cellIndex}:${ptKey}`) ?? false
+    if (actuallyDestroy && !protected_) {
+      const [r, c] = ptKey.split(',').map(Number)
+      defCell.remove(r, c)
+      results.push({ ptKey, destroyed: true })
+      destroyedAtoms.push({ defender, cellIndex, r, c, color: 'black' })
+    } else {
+      results.push({ ptKey, destroyed: !protected_ })
+    }
+  }
+  return { results, destroyedAtoms }
 }
 
 export function destroyOneBlackAndGetComponents(attackerCell, defenderCell, blackToDestroy) {
@@ -191,34 +244,42 @@ export function applyEffectRedRandom(state, attacker, cellIndex, r, c, targetDef
       : targetDefCellIndex == null
         ? [0, 1, 2]
         : []
-  const candidates = []
-  for (const ci of cellIndices) {
-    const defCell = defCells[ci]
-    for (const k of defCell.blackPoints()) {
-      if (!(state.blueProtectedPoints?.[defender]?.has(`${ci}:${k}`) ?? false)) {
-        candidates.push({ ci, k })
-      }
-    }
-  }
-  if (candidates.length === 0) return false
-  const k = Math.min(y, candidates.length)
-  const shuffled = [...candidates].sort(() => Math.random() - 0.5)
-  const toDestroy = shuffled.slice(0, k)
   cell.remove(r, c)
   const affectedCells = new Set()
-  for (const { ci, k: ptKey } of toDestroy) {
-    const [rr, cc] = ptKey.split(',').map(Number)
-    defCells[ci].remove(rr, cc)
-    affectedCells.add(ci)
+  const destroyedAtoms = []
+  for (const ci of cellIndices) {
+    const defCell = defCells[ci]
+    const numBefore = defCell.allAtoms().length
+    if (numBefore === 0) continue
+    const numBlacks = defCell.blackPoints().size
+    if (numBlacks === 0) continue
+    const k = Math.min(y, numBlacks)
+    const { destroyedAtoms: da } = selectAndDestroyBlackTargets(state, defender, ci, defCell, k, true)
+    destroyedAtoms.push(...da)
+    if (defCell.allAtoms().length < numBefore) affectedCells.add(ci)
   }
   // 红效果破坏结束后立即检查是否产生多个连通子集，若有则需被破坏方选择
   for (const ci of affectedCells) {
     const choice = getConnectivityChoice(defCells[ci])
     if (choice) {
-      return { ok: true, connectivityChoice: { defender, cellIndex: ci, ...choice } }
+      return { ok: true, connectivityChoice: { defender, cellIndex: ci, ...choice }, destroyedAtoms }
     }
   }
-  return { ok: true }
+  return { ok: true, destroyedAtoms }
+}
+
+export function applyEffectYellow(state, player, cellIndex, r, c) {
+  const cells = state.cells[player]
+  if (cellIndex < 0 || cellIndex >= cells.length) return false
+  const cell = cells[cellIndex]
+  if (cell.get(r, c) !== ATOM_YELLOW) return false
+  const priority_ = cell.blackNeighborsOf(r, c)
+  cell.remove(r, c)
+  for (const k of priority_) {
+    state.yellowPriorityPoints[player].add(`${cellIndex}:${k}`)
+  }
+  state.yellowPriorityUntilTurn[player] = state.turnNumber + 2
+  return true
 }
 
 export function applyEffectGreen(state, player, cellIndex, r, c) {
