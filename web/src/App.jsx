@@ -39,6 +39,7 @@ function App() {
   const [attackMyCell, setAttackMyCell] = useState(null)
   const [attackEnemyCell, setAttackEnemyCell] = useState(null)
   const [redEffectSource, setRedEffectSource] = useState(null)
+  const [effectPendingAtom, setEffectPendingAtom] = useState(null)
   const [attackMessage, setAttackMessage] = useState('')
   const [connectivityChoice, setConnectivityChoice] = useState(null)
   const [pendingAction, setPendingAction] = useState(null)
@@ -62,6 +63,7 @@ function App() {
       setAttackMyCell(null)
       setAttackEnemyCell(null)
       setRedEffectSource(null)
+      setEffectPendingAtom(null)
       setConnectivityChoice(null)
       setPendingAction(null)
     }
@@ -76,6 +78,14 @@ function App() {
     setAttackMyCell(null)
     setAttackEnemyCell(null)
     setRedEffectSource(null)
+  }, [])
+
+  const updateState = useCallback((updater) => {
+    setState((prev) => {
+      const next = { ...prev }
+      if (typeof updater === 'function') updater(next)
+      return next
+    })
   }, [])
 
   const triggerDestroyAnimation = useCallback((destroyedAtoms) => {
@@ -96,12 +106,47 @@ function App() {
     setTimeout(() => setEffectFlashAtom(null), 320)
   }, [])
 
-  const updateState = useCallback((updater) => {
-    setState((prev) => {
-      const next = { ...prev }
-      if (typeof updater === 'function') updater(next)
-      return next
-    })
+  const handleEffectConfirm = useCallback(() => {
+    if (!effectPendingAtom) return
+    const { player, cellIndex, r, c, color } = effectPendingAtom
+    setEffectPendingAtom(null)
+    if (color === 'red') {
+      setRedEffectSource({ player, cellIndex, r, c })
+      setActionSubstate('red_effect_target')
+      setAttackMessage('请选择要作用的对方格子')
+      return
+    }
+    if (color === 'blue') {
+      updateState((s) => {
+        if (applyEffectBlue(s, player, cellIndex, r, c)) {
+          triggerEffectFlash(player, cellIndex, r, c)
+          setAttackMessage('蓝效果：相邻黑原子下一回合内不可被破坏')
+        }
+      })
+      return
+    }
+    if (color === 'green') {
+      updateState((s) => {
+        if (applyEffectGreen(s, player, cellIndex, r, c)) {
+          triggerEffectFlash(player, cellIndex, r, c)
+          setAttackMessage('绿效果：该格点变为黑原子')
+        }
+      })
+      return
+    }
+    if (color === 'yellow') {
+      updateState((s) => {
+        if (applyEffectYellow(s, player, cellIndex, r, c)) {
+          triggerEffectFlash(player, cellIndex, r, c)
+          setAttackMessage('黄效果：相邻黑原子下回合内优先被破坏')
+        }
+      })
+      return
+    }
+  }, [effectPendingAtom, updateState, triggerEffectFlash])
+
+  const handleEffectCancel = useCallback(() => {
+    setEffectPendingAtom(null)
   }, [])
 
   const handleAttackConfirm = useCallback(() => {
@@ -226,36 +271,23 @@ function App() {
           const cell = state.cells[cur][cellIndex]
           const color = cell.get(r, c)
           if (color === 'red') {
-            const y = cell.countBlackNeighbors(r, c)
+            const y = cell.effectiveBlackNeighborCount(r, c)
             if (y > 0) {
-              setRedEffectSource({ player: cur, cellIndex, r, c })
-              setActionSubstate('red_effect_target')
-              setAttackMessage('请选择要作用的对方格子')
+              setEffectPendingAtom({ player: cur, cellIndex, r, c, color: 'red' })
+              setAttackMessage('请确认发动红效果，再选择对方格子')
               return
             }
           } else if (color === 'blue') {
-            updateState((s) => {
-              if (applyEffectBlue(s, cur, cellIndex, r, c)) {
-                triggerEffectFlash(cur, cellIndex, r, c)
-                setAttackMessage('蓝效果：相邻黑原子下一回合内不可被破坏')
-              }
-            })
+            setEffectPendingAtom({ player: cur, cellIndex, r, c, color: 'blue' })
+            setAttackMessage('请确认发动蓝效果')
             return
           } else if (color === 'green') {
-            updateState((s) => {
-              if (applyEffectGreen(s, cur, cellIndex, r, c)) {
-                triggerEffectFlash(cur, cellIndex, r, c)
-                setAttackMessage('绿效果：该格点变为黑原子')
-              }
-            })
+            setEffectPendingAtom({ player: cur, cellIndex, r, c, color: 'green' })
+            setAttackMessage('请确认发动绿效果')
             return
           } else if (color === 'yellow') {
-            updateState((s) => {
-              if (applyEffectYellow(s, cur, cellIndex, r, c)) {
-                triggerEffectFlash(cur, cellIndex, r, c)
-                setAttackMessage('黄效果：相邻黑原子下回合内优先被破坏')
-              }
-            })
+            setEffectPendingAtom({ player: cur, cellIndex, r, c, color: 'yellow' })
+            setAttackMessage('请确认发动黄效果')
             return
           } else if (color === 'purple') {
             setAttackMessage('紫原子无点击效果')
@@ -284,7 +316,7 @@ function App() {
           return
         }
 
-        if (actionSubstate === 'idle' && player === cur && canAttackThisTurn(state)) {
+        if (actionSubstate === 'idle' && !effectPendingAtom && player === cur && canAttackThisTurn(state)) {
           const cell = state.cells[cur][cellIndex]
           if (!cell.isEmpty() && cell.hasBlack() && !hasCellAttackedThisTurn(state, cur, cellIndex)) {
             setAttackMyCell([cur, cellIndex])
@@ -350,6 +382,7 @@ function App() {
       updateState,
       actionSubstate,
       attackMyCell,
+      effectPendingAtom,
       redEffectSource,
       resetAttackState,
       triggerDestroyAnimation,
@@ -455,6 +488,7 @@ function App() {
           connectivityChoice={connectivityChoice}
           destroyingAtoms={destroyingAtoms}
           effectFlashAtom={effectFlashAtom}
+          effectPendingAtom={effectPendingAtom}
           actionSubstate={actionSubstate}
           attackMyCell={attackMyCell}
           attackEnemyCell={attackEnemyCell}
@@ -506,6 +540,11 @@ function App() {
         attackEnemyCell={attackEnemyCell}
         onAttackConfirm={handleAttackConfirm}
         onAttackCancel={handleAttackCancel}
+        onAttackMyCellCancel={() => {
+          setAttackMyCell(null)
+          setAttackEnemyCell(null)
+          setActionSubstate('idle')
+        }}
         onDirectAttackConfirm={() => {
           if (attackMyCell) {
             updateState((s) => {
@@ -521,6 +560,9 @@ function App() {
         attackMessage={attackMessage}
         connectivityChoice={connectivityChoice}
         onConnectivityChoice={handleConnectivityChoice}
+        effectPendingAtom={effectPendingAtom}
+        onEffectConfirm={handleEffectConfirm}
+        onEffectCancel={handleEffectCancel}
       />
     </div>
   )

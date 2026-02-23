@@ -52,6 +52,7 @@ function CellView({
   connectivityChoiceCell,
   destroyingAtoms = [],
   effectFlashAtom = null,
+  effectPendingAtom = null,
 }) {
   const { x, y, w, h } = rect
   const denom = Math.max(3, Math.min(10, gridScaleDenom ?? 4))
@@ -203,6 +204,7 @@ function CellView({
           const p = toPx(r, c, scale, ox, oy)
           const fill = ATOM_COLORS[color] ?? '#888'
           const isEffectFlash = effectFlashAtom && effectFlashAtom.player === player && effectFlashAtom.cellIndex === cellIndex && effectFlashAtom.r === r && effectFlashAtom.c === c
+          const isEffectPending = effectPendingAtom && effectPendingAtom.player === player && effectPendingAtom.cellIndex === cellIndex && effectPendingAtom.r === r && effectPendingAtom.c === c
           const compIdx = connectivityChoiceCell?.components?.findIndex((comp) => comp.includes(`${r},${c}`))
           const compColor = compIdx >= 0 ? COMPONENT_COLORS[compIdx % COMPONENT_COLORS.length] : null
           const protectedByBlue = color === ATOM_BLACK && state && isBlackProtected(state, player, cellIndex, [r, c])
@@ -238,6 +240,17 @@ function CellView({
                 stroke={protectedByBlue ? '#4678c8' : yellowPriority ? '#c8a832' : '#333'}
                 className={isEffectFlash ? 'atom-effect-flash' : undefined}
               />
+              {isEffectPending && (
+                <circle
+                  cx={p.x}
+                  cy={p.y}
+                  r={ringR + ringW}
+                  fill="none"
+                  stroke="#f59e0b"
+                  strokeWidth={ringW * 1.5}
+                  strokeOpacity={0.95}
+                />
+              )}
             </g>
           )
         })}
@@ -303,6 +316,7 @@ export default function Board({
   connectivityChoice = null,
   destroyingAtoms = [],
   effectFlashAtom = null,
+  effectPendingAtom = null,
   actionSubstate = null,
   attackMyCell = null,
   attackEnemyCell = null,
@@ -441,6 +455,7 @@ export default function Board({
           isAttackHighlight={attackHighlightCell?.player === 1 && attackHighlightCell?.cellIndex === i}
           destroyingAtoms={destroyingAtoms.filter((d) => d.defender === 1 && d.cellIndex === i)}
           effectFlashAtom={effectFlashAtom}
+          effectPendingAtom={effectPendingAtom}
         />
       ))}
       <line x1={dividerLeft} y1={dividerY} x2={dividerRight} y2={dividerY} stroke="#555" strokeWidth={1} strokeDasharray="4 4" />
@@ -468,6 +483,7 @@ export default function Board({
           isAttackHighlight={attackHighlightCell?.player === 0 && attackHighlightCell?.cellIndex === i}
           destroyingAtoms={destroyingAtoms.filter((d) => d.defender === 0 && d.cellIndex === i)}
           effectFlashAtom={effectFlashAtom}
+          effectPendingAtom={effectPendingAtom}
         />
       ))}
     </svg>

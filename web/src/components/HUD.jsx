@@ -4,7 +4,7 @@ import { endPlacePhase, endTurn, startTurnDefault, undoLastPlacement, canUndoPla
 import { applyGreenEndOfTurn } from '../game/combat.js'
 import { PHASE_CONFIRM, PHASE_PLACE, PHASE_ACTION } from '../game/config.js'
 
-const RULES_OVERLAY_LINES = [
+export const RULES_OVERLAY_LINES = [
   "【规则摘要】 点击「规则」或下方关闭按钮关闭",
   "",
   "一、目标",
@@ -30,7 +30,7 @@ const RULES_OVERLAY_LINES = [
   "红：进攻时，己方格红原子（与紫相邻时用扩展黑邻跳数）可多破坏 x 个原子。",
   "蓝：遭进攻时，己方格蓝原子（与紫相邻时用扩展黑邻跳数）可少破坏 x 个（最低为 0）。",
   "绿：回合结束时，获得己方所有绿原子有效黑邻数之和的黑原子（与紫相邻时用扩展黑邻跳数）。",
-  "黄：对方必须以有黄原子的格子为攻击对象；与紫相邻时黄效果按扩展黑邻跳数计算。",
+  "黄：对方必须以有黄原子的格子为攻击对象和红原子的效果对象；与紫相邻时黄效果按扩展黑邻跳数计算。",
   "紫：无持续性数值；其作用是扩展红/蓝/绿/黄的黑邻跳数（多紫可叠加）。",
   "",
   "六、原子点击效果",
@@ -65,11 +65,15 @@ export default function HUD({
   attackEnemyCell,
   onAttackConfirm,
   onAttackCancel,
+  onAttackMyCellCancel,
   onDirectAttackConfirm,
   onDirectAttackCancel,
   attackMessage,
   connectivityChoice,
   onConnectivityChoice,
+  effectPendingAtom,
+  onEffectConfirm,
+  onEffectCancel,
 }) {
   const [showRules, setShowRules] = useState(false)
   const [showEndPlaceConfirm, setShowEndPlaceConfirm] = useState(false)
@@ -224,6 +228,14 @@ export default function HUD({
           >
             结束回合
           </button>
+          {actionSubstate === 'attack_my' && attackMyCell && (
+            <button
+              onClick={onAttackMyCellCancel}
+              className="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded text-sm w-full"
+            >
+              取消选择
+            </button>
+          )}
           {actionSubstate === 'attack_confirm' && attackMyCell && attackEnemyCell && (
             <>
               <span className="text-xs text-amber-400 px-1">确认进攻？</span>
@@ -235,6 +247,23 @@ export default function HUD({
               </button>
               <button
                 onClick={onAttackCancel}
+                className="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded text-sm w-full"
+              >
+                取消
+              </button>
+            </>
+          )}
+          {effectPendingAtom && (
+            <>
+              <span className="text-xs text-amber-400 px-1">确认发动效果？</span>
+              <button
+                onClick={onEffectConfirm}
+                className="px-3 py-2 bg-amber-600 hover:bg-amber-500 rounded text-sm w-full"
+              >
+                确认发动
+              </button>
+              <button
+                onClick={onEffectCancel}
                 className="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded text-sm w-full"
               >
                 取消
