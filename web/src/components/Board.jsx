@@ -22,6 +22,7 @@ const ATOM_COLORS = {
   green: '#46a064',
   yellow: '#c8a832',
   purple: '#7c3aed',
+  white: '#e8e8e8',
 }
 
 function toPx(r, c, scale, ox, oy) {
@@ -53,6 +54,7 @@ function CellView({
   destroyingAtoms = [],
   effectFlashAtom = null,
   effectPendingAtom = null,
+  testMode = false,
 }) {
   const { x, y, w, h } = rect
   const denom = Math.max(3, Math.min(10, gridScaleDenom ?? 4))
@@ -91,7 +93,24 @@ function CellView({
     const rectSvg = svg.getBoundingClientRect()
     const px = e.clientX - rectSvg.left
     const py = e.clientY - rectSvg.top
-    const pt = pixelToGrid(px, py, scale, ox, oy, cell.grid)
+    let pt = pixelToGrid(px, py, scale, ox, oy, cell.grid)
+    if (selectedColor === 'white' && (!pt || cell.get(pt[0], pt[1]) == null)) {
+      const atoms = cell.allAtoms()
+      if (atoms.length > 0) {
+        const hitRadius = scale * 0.6
+        let best = null
+        let bestD = hitRadius * hitRadius
+        for (const [[r, c]] of atoms) {
+          const p = toPx(r, c, scale, ox, oy)
+          const d = (p.x - px) ** 2 + (p.y - py) ** 2
+          if (d < bestD) {
+            bestD = d
+            best = [r, c]
+          }
+        }
+        if (best) pt = best
+      }
+    }
     const viewCenter = pixelToGrid(cx, cy, scale, ox, oy, cell.grid)
     onClick?.(player, cellIndex, pt?.[0] ?? null, pt?.[1] ?? null, viewCenter)
   }
@@ -297,6 +316,12 @@ function CellView({
         fontSize="11"
       >
         红: {redY}  蓝: {blueY}  绿: {greenY}  黄: {yellowY}  紫: {purpleCount}
+        {testMode && (
+          <tspan fill="#fbbf24" fontWeight="bold">
+            {'  |  连通: '}{cell.connectedComponents().length}
+            {cell.hasBlack() ? `  黑连通: ${cell.blackConnectedComponents().length}` : ''}
+          </tspan>
+        )}
       </text>
     </g>
   )
@@ -306,7 +331,7 @@ function cellKey(p, i) {
   return `${p}-${i}`
 }
 
-export default function Board({
+function Board({
   state,
   selectedColor,
   onClick: onCellClick,
@@ -320,6 +345,7 @@ export default function Board({
   actionSubstate = null,
   attackMyCell = null,
   attackEnemyCell = null,
+  testMode = false,
 }) {
   const [viewPan, setViewPan] = useState({})
   const dragRef = useRef(null)
@@ -456,6 +482,7 @@ export default function Board({
           destroyingAtoms={destroyingAtoms.filter((d) => d.defender === 1 && d.cellIndex === i)}
           effectFlashAtom={effectFlashAtom}
           effectPendingAtom={effectPendingAtom}
+          testMode={testMode}
         />
       ))}
       <line x1={dividerLeft} y1={dividerY} x2={dividerRight} y2={dividerY} stroke="#555" strokeWidth={1} strokeDasharray="4 4" />
@@ -484,8 +511,11 @@ export default function Board({
           destroyingAtoms={destroyingAtoms.filter((d) => d.defender === 0 && d.cellIndex === i)}
           effectFlashAtom={effectFlashAtom}
           effectPendingAtom={effectPendingAtom}
+          testMode={testMode}
         />
       ))}
     </svg>
   )
 }
+
+export default Board

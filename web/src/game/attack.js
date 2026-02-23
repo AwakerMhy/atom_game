@@ -59,26 +59,11 @@ export function resolveAttackRandom(state, attackMyCell, attackEnemyCell) {
   const destroyedAtoms = [...firstDestroyed]
   state.hp[enP] = Math.max(0, (state.hp[enP] ?? 0) - 1)
   const extra = extraDestroys(atkCell, defCell)
-  if (extra > 0 && !defCell.isEmpty()) {
-    const allEntries = [...defCell.allAtoms()].map(([[r, c]]) => ({ pt: `${r},${c}`, r, c }))
-    const isRemovable = (ent) => {
-      const pt = ent.pt
-      const color = defCell.get(ent.r, ent.c)
-      if (color === 'black' && (state.blueProtectedPoints[enP]?.has(`${enCi}:${pt}`) ?? false)) return false
-      return true
-    }
-    const priorityRemovable = allEntries.filter((ent) => (state.yellowPriorityPoints?.[enP]?.has(`${enCi}:${ent.pt}`) ?? false) && isRemovable(ent))
-    const restRemovable = allEntries.filter((ent) => !(state.yellowPriorityPoints?.[enP]?.has(`${enCi}:${ent.pt}`) ?? false) && isRemovable(ent))
-    const toRemove = [
-      ...shuffleArray(priorityRemovable).slice(0, extra),
-      ...shuffleArray(restRemovable).slice(0, Math.max(0, extra - priorityRemovable.length)),
-    ].slice(0, extra)
-    for (const ent of toRemove) {
-      destroyedAtoms.push({ defender: enP, cellIndex: enCi, r: ent.r, c: ent.c, color: defCell.get(ent.r, ent.c) ?? 'black' })
-      defCell.remove(ent.r, ent.c)
-    }
+  if (extra > 0 && defCell.hasBlack()) {
+    const { destroyedAtoms: extraDestroyed } = selectAndDestroyBlackTargets(state, enP, enCi, defCell, extra, true)
+    destroyedAtoms.push(...extraDestroyed)
   }
-  // 攻击破坏结束后立即检查是否产生多个连通子集，若有则需被破坏方选择
+  // 规定：该格黑原子变少后检查是否产生多个不连通子集，若有则弹窗选择
   const choice = getConnectivityChoice(defCell)
   if (choice) {
     return {

@@ -32,14 +32,15 @@ export function createGameState(config = {}) {
   const cfg = {
     baseDrawCount: 10,
     basePlaceLimit: 10,
-    drawWeights: [3, 1, 1, 1, 1, 0],
+    drawWeights: [3, 1, 1, 1, 1, 0, 0],
     initialHp: INITIAL_HP,
     cellCount: 3,
     ...config,
   }
-  const base = [3, 1, 1, 1, 1, 0]
+  const base = [3, 1, 1, 1, 1, 0, 0]
+  const numColors = 7
   const wIn = Array.isArray(cfg.drawWeights) ? cfg.drawWeights : base
-  const weights = wIn.length >= 6 ? wIn.slice(0, 6) : [...wIn.slice(0, 5), ...Array(6 - wIn.length).fill(0)].slice(0, 6)
+  const weights = wIn.length >= numColors ? wIn.slice(0, numColors) : [...wIn, ...Array(numColors - wIn.length).fill(0)].slice(0, numColors)
   const hpVal = Math.max(1, Math.min(99, cfg.initialHp ?? INITIAL_HP))
   const cellCount = Math.max(2, Math.min(6, cfg.cellCount ?? 3))
   return {
@@ -60,6 +61,8 @@ export function createGameState(config = {}) {
     turnAttackUsed: 0,
     turnNumber: 0,
     attackedCellsThisTurn: [],
+    attackedEnemyCellIndicesThisTurn: [],
+    redEffectTargetCellIndicesThisTurn: [],
     isFirstTurn: true,
     blueProtectedPoints: { 0: new Set(), 1: new Set() },
     blueProtectionUntilTurn: {},
@@ -130,13 +133,60 @@ export function cellsWithYellow(state, player) {
   return out
 }
 
-/** 进攻时可选的对方格子索引。若对方有黄原子格，则只能选有黄原子的格；否则可选有黑原子的格 */
+/** 某格黄原子个数（用于黄持续效果：进攻顺序） */
+export function yellowCountInCell(cell) {
+  return cell.countByColor?.()?.[ATOM_YELLOW] ?? 0
+}
+
+/**
+ * 进攻时可选的对方格子索引。
+ * 黄原子持续效果：对方若要进攻我方某格（该格有 x 个黄原子），须已进攻过所有「黄原子数严格大于 x」的我方格子。
+ * 因此按黄原子数从多到少依次可被选为攻击目标。
+ */
 export function getAttackableEnemyCellIndices(state) {
   const opp = 1 - state.currentPlayer
-  const yellowCells = cellsWithYellow(state, opp)
-  if (yellowCells.length > 0) {
-    return yellowCells.filter((i) => !state.cells[opp][i].isEmpty() && state.cells[opp][i].hasBlack())
-  }
-  const n = state.cells[opp].length
-  return Array.from({ length: n }, (_, i) => i).filter((i) => !state.cells[opp][i].isEmpty() && state.cells[opp][i].hasBlack())
+  const cells = state.cells[opp]
+  const n = cells.length
+  const attackedSet = new Set(state.attackedEnemyCellIndicesThisTurn ?? [])
+  const yellowCounts = cells.map((c) => yellowCountInCell(c))
+
+  const candidateIndices = Array.from({ length: n }, (_, i) => i).filter(
+    (i) => !cells[i].isEmpty() && cells[i].hasBlack()
+  )
+  if (candidateIndices.length === 0) return []
+
+  const attackable = candidateIndices.filter((i) => {
+    const x = yellowCounts[i]
+    for (let j = 0; j < n; j++) {
+      if (yellowCounts[j] > x && !attackedSet.has(j)) return false
+    }
+    return true
+  })
+  return attackable
+}
+
+/**
+ * 红效果可选的对方格子索引。
+ * 与进攻相同顺序约束：对方某格有 x 个黄原子时，须已对「黄原子数严格大于 x」的我方其他格子发动过红效果后才能选该格。
+ */
+export function getRedEffectTargetableEnemyCellIndices(state) {
+  const cur = state.currentPlayer
+  const opp = 1 - cur
+  const cells = state.cells[opp]
+  const n = cells.length
+  const doneSet = new Set(state.redEffectTargetCellIndicesThisTurn ?? [])
+  const yellowCounts = cells.map((c) => yellowCountInCell(c))
+
+  const candidateIndices = Array.from({ length: n }, (_, i) => i).filter(
+    (i) => !cells[i].isEmpty() && cells[i].hasBlack()
+  )
+  if (candidateIndices.length === 0) return []
+
+  return candidateIndices.filter((i) => {
+    const x = yellowCounts[i]
+    for (let j = 0; j < n; j++) {
+      if (yellowCounts[j] > x && !doneSet.has(j)) return false
+    }
+    return true
+  })
 }

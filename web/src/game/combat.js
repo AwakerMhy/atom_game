@@ -265,7 +265,7 @@ export function applyEffectRedRandom(state, attacker, cellIndex, r, c, targetDef
     destroyedAtoms.push(...da)
     if (defCell.allAtoms().length < numBefore) affectedCells.add(ci)
   }
-  // 红效果破坏结束后立即检查是否产生多个连通子集，若有则需被破坏方选择
+  // 规定：该格黑原子变少后检查是否产生多个不连通子集，若有则弹窗选择
   for (const ci of affectedCells) {
     const choice = getConnectivityChoice(defCells[ci])
     if (choice) {
@@ -290,6 +290,10 @@ export function applyEffectYellow(state, player, cellIndex, r, c) {
     state.yellowPriorityPoints[player].add(`${cellIndex}:${k}`)
   }
   state.yellowPriorityUntilTurn[player] = state.turnNumber + 2
+  const choice = getConnectivityChoice(cell)
+  if (choice && choice.components?.length > 0) {
+    return { ok: true, connectivityChoice: { defender: player, cellIndex, ...choice } }
+  }
   return true
 }
 
@@ -315,6 +319,10 @@ export function applyEffectGreen(state, player, cellIndex, r, c) {
   }
   for (const [nr, nc] of purpleNeighbors) {
     cell.remove(nr, nc)
+  }
+  const choice = getConnectivityChoice(cell)
+  if (choice && choice.components?.length > 0) {
+    return { ok: true, connectivityChoice: { defender: player, cellIndex, ...choice } }
   }
   return true
 }

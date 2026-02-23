@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { COLORS } from '../game/config.js'
 import { RULES_OVERLAY_LINES } from './HUD.jsx'
 
-const LABELS = { black: '黑', red: '红', blue: '蓝', green: '绿', yellow: '黄', purple: '紫' }
-const BADGES = { black: 'bg-black', red: 'bg-red-700', blue: 'bg-blue-700', green: 'bg-green-700', yellow: 'bg-amber-600', purple: 'bg-violet-600' }
+const LABELS = { black: '黑', red: '红', blue: '蓝', green: '绿', yellow: '黄', purple: '紫', white: '白' }
+const BADGES = { black: 'bg-black', red: 'bg-red-700', blue: 'bg-blue-700', green: 'bg-green-700', yellow: 'bg-amber-600', purple: 'bg-violet-600', white: 'bg-gray-200' }
 
-const DEFAULT_WEIGHTS = [3, 1, 1, 1, 1, 0]
+const DEFAULT_WEIGHTS = [3, 1, 1, 1, 1, 0, 0]
 
 export default function StartScreen({ onStart, defaultConfig = {} }) {
   const [showRules, setShowRules] = useState(false)
@@ -16,8 +16,8 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
   const [drawWeights, setDrawWeights] = useState(
     () => {
       const w = defaultConfig.drawWeights
-      if (Array.isArray(w) && w.length >= 6) return [...w]
-      if (Array.isArray(w)) return [...w.slice(0, 5), w[5] ?? 0, ...Array(6 - w.length).fill(0)].slice(0, 6)
+      if (Array.isArray(w) && w.length >= 7) return [...w]
+      if (Array.isArray(w)) return [...w, ...Array(7 - w.length).fill(0)].slice(0, 7)
       return [...DEFAULT_WEIGHTS]
     }
   )
@@ -28,7 +28,7 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
       const next = [...w]
       if (index >= next.length) next.push(...Array(index - next.length + 1).fill(0))
       next[index] = v
-      return next.slice(0, 6)
+      return next.slice(0, 7)
     })
   }
 
@@ -157,7 +157,7 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
             <div className="space-y-2">
               {colorKeys.map((color, i) => (
                 <div key={color} className="flex items-center gap-2">
-                  <span className={`w-10 shrink-0 rounded px-1.5 py-0.5 text-xs font-medium text-white ${BADGES[color] ?? 'bg-gray-600'}`}>
+                  <span className={`w-10 shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${color === 'white' ? 'text-black' : 'text-white'} ${BADGES[color] ?? 'bg-gray-600'}`}>
                     {LABELS[color]}
                   </span>
                   <input

@@ -10,9 +10,11 @@ import {
   CHOICE_EXTRA_PLACE,
   CHOICE_EXTRA_ATTACK,
   ATOM_BLACK,
+  ATOM_WHITE,
 } from './config.js'
 import { drawAtoms } from './draw.js'
 import { xForTurn } from './state.js'
+import { getConnectivityChoice } from './combat.js'
 
 export function applyPhase0Choice(state, choice) {
   if (state.phase !== PHASE_CONFIRM || state.phase0Choice != null) return false
@@ -57,15 +59,22 @@ export function startTurnDefault(state) {
   advanceToPhase1(state)
 }
 
-export function validatePlace(state, cellIndex, r, c, color) {
+export function validatePlace(state, cellIndex, r, c, color, options = {}) {
   if (state.phase !== PHASE_PLACE) return [false, '当前不是排布阶段']
   if (state.turnPlacedCount >= state.turnPlaceLimit) return [false, '本回合放置数已达上限']
   const pool = state.pools[state.currentPlayer]
   if ((pool[color] ?? 0) <= 0) return [false, '没有该颜色原子']
-  const cells = state.cells[state.currentPlayer]
+  const targetPlayer = color === ATOM_WHITE && options.targetPlayer != null ? options.targetPlayer : state.currentPlayer
+  const cells = state.cells[targetPlayer]
   if (cellIndex < 0 || cellIndex >= cells.length) return [false, '无效格子']
   const cell = cells[cellIndex]
-  if (!cell.grid.inBounds(r, c) || cell.get(r, c) != null) return [false, '该格点已有原子或越界']
+  if (!cell.grid.inBounds(r, c)) return [false, '越界']
+  if (color === ATOM_WHITE) {
+    if (cell.get(r, c) == null) return [false, '白原子需点击格上已有原子才能发动（删除该原子并消耗 1 个白原子）']
+    return [true, '']
+  }
+  if (targetPlayer !== state.currentPlayer) return [false, '仅白原子可作用于对方格子']
+  if (cell.get(r, c) != null) return [false, '该格点已有原子']
   const blacks = cell.blackPoints()
   if (color === ATOM_BLACK) {
     if (blacks.size > 0) {
@@ -74,7 +83,7 @@ export function validatePlace(state, cellIndex, r, c, color) {
     }
   } else {
     const hasBlackNeighbor = cell.grid.neighborsOf(r, c).some(([nr, nc]) => blacks.has(`${nr},${nc}`))
-    if (!hasBlackNeighbor) return [false, '红/蓝/绿/黄必须与至少一个黑原子相邻']
+    if (!hasBlackNeighbor) return [false, '红/蓝/绿/黄/紫必须与至少一个黑原子相邻']
   }
   cell.place(r, c, color)
   if (!cell.isConnected()) {
@@ -89,11 +98,23 @@ export function validatePlace(state, cellIndex, r, c, color) {
   return [true, '']
 }
 
-export function applyPlace(state, cellIndex, r, c, color) {
-  const [ok, msg] = validatePlace(state, cellIndex, r, c, color)
+export function applyPlace(state, cellIndex, r, c, color, options = {}) {
+  const targetPlayer = color === ATOM_WHITE && options.targetPlayer != null ? options.targetPlayer : state.currentPlayer
+  const [ok, msg] = validatePlace(state, cellIndex, r, c, color, options)
   if (!ok) return false
-  const cell = state.cells[state.currentPlayer][cellIndex]
-  cell.place(r, c, color)
+  const cell = state.cells[targetPlayer][cellIndex]
+  // 排布阶段白原子效果：点击某格上一颗原子 → 删除该原子，消耗 1 个白原子；若该格随后出现多个不连通子集则由统一规则弹窗选择
+  if (color === ATOM_WHITE) {
+    cell.remove(r, c)
+    state.pools[state.currentPlayer][color]--
+    state.turnPlacedCount++
+    state.placementHistory = state.placementHistory ?? []
+    state.placementHistory.push({ player: state.currentPlayer, targetPlayer, cellIndex, r, c, color })
+    const connectivityChoice = getConnectivityChoice(cell)
+    return { applied: true, connectivityChoice, defender: targetPlayer, cellIndex }
+  }
+  const cellOwn = state.cells[state.currentPlayer][cellIndex]
+  cellOwn.place(r, c, color)
   state.pools[state.currentPlayer][color]--
   state.turnPlacedCount++
   state.placementHistory = state.placementHistory ?? []
@@ -101,20 +122,20 @@ export function applyPlace(state, cellIndex, r, c, color) {
   return true
 }
 
-/** 是否存在可撤回的非黑原子放置 */
+/** 是否存在可撤回的非黑、非白原子放置（黑与白不可撤回） */
 export function canUndoPlacement(state) {
   const hist = state.placementHistory ?? []
-  return state.phase === PHASE_PLACE && hist.some((h) => h.color !== ATOM_BLACK)
+  return state.phase === PHASE_PLACE && hist.some((h) => h.color !== ATOM_BLACK && h.color !== ATOM_WHITE)
 }
 
-/** 撤回最后一个非黑原子的放置；黑原子不可撤回 */
+/** 撤回最后一个非黑、非白原子的放置；黑与白不可撤回 */
 export function undoLastPlacement(state) {
   const hist = state.placementHistory ?? []
   if (hist.length === 0) return false
   if (state.phase !== PHASE_PLACE) return false
   let idx = -1
   for (let i = hist.length - 1; i >= 0; i--) {
-    if (hist[i].color !== ATOM_BLACK) {
+    if (hist[i].color !== ATOM_BLACK && hist[i].color !== ATOM_WHITE) {
       idx = i
       break
     }
@@ -219,6 +240,8 @@ export function endPlacePhase(state) {
   state.turnAttackUsed = 0
   state.turnAttackLimit = state.cells[state.currentPlayer].filter((c) => c.hasBlack()).length
   state.attackedCellsThisTurn = []
+  state.attackedEnemyCellIndicesThisTurn = []
+  state.redEffectTargetCellIndicesThisTurn = []
 }
 
 export function endTurn(state) {

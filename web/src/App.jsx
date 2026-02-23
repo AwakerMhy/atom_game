@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { createGameState, pool, canAttackThisTurn, opponent, hasCellAttackedThisTurn, getAttackableEnemyCellIndices } from './game/state.js'
+import { createGameState, pool, canAttackThisTurn, opponent, hasCellAttackedThisTurn, getAttackableEnemyCellIndices, getRedEffectTargetableEnemyCellIndices } from './game/state.js'
 import { startTurnDefault } from './game/turn.js'
 import { applyPlace, batchPlaceOnCell } from './game/turn.js'
 import {
@@ -45,8 +45,12 @@ function App() {
   const [pendingAction, setPendingAction] = useState(null)
   const [destroyingAtoms, setDestroyingAtoms] = useState([])
   const [effectFlashAtom, setEffectFlashAtom] = useState(null)
+  const [testMode, setTestMode] = useState(false)
   const nextConnectivityChoiceRef = useRef(null)
   const destroyTimeoutRef = useRef(null)
+  const whitePlaceConnectivityRef = useRef(null)
+  const whitePlacePendingInUpdaterRef = useRef(null)
+  const [whitePlaceConnectivityTrigger, setWhitePlaceConnectivityTrigger] = useState(0)
 
   const maxBatch = state.phase === PHASE_PLACE
     ? Math.min(pool(state, state.currentPlayer).black ?? 0, state.turnPlaceLimit - state.turnPlacedCount)
@@ -57,8 +61,12 @@ function App() {
     }
   }, [batchMode, maxBatch, batchCount])
 
+  const prevPhaseRef = useRef(state.phase)
   useEffect(() => {
-    if (state.phase !== PHASE_ACTION) {
+    const prev = prevPhaseRef.current
+    prevPhaseRef.current = state.phase
+    const leftActionPhase = prev === PHASE_ACTION && state.phase !== PHASE_ACTION
+    if (leftActionPhase) {
       setActionSubstate('idle')
       setAttackMyCell(null)
       setAttackEnemyCell(null)
@@ -67,25 +75,46 @@ function App() {
       setConnectivityChoice(null)
       setPendingAction(null)
     }
+    const leftPlacePhase = prev === PHASE_PLACE && state.phase !== PHASE_PLACE
+    if (leftPlacePhase) {
+      whitePlacePendingInUpdaterRef.current = null
+      setState((s) => {
+        const next = { ...s }
+        delete next.pendingConnectivityChoice
+        delete next.pendingConnectivityAction
+        return next
+      })
+    }
   }, [state.phase])
 
   useEffect(() => () => {
     if (destroyTimeoutRef.current) clearTimeout(destroyTimeoutRef.current)
   }, [])
 
-  const resetAttackState = useCallback(() => {
-    setActionSubstate('idle')
-    setAttackMyCell(null)
-    setAttackEnemyCell(null)
-    setRedEffectSource(null)
-  }, [])
+  useEffect(() => {
+    const payload = whitePlaceConnectivityRef.current
+    if (!payload || state.phase !== PHASE_PLACE) return
+    whitePlaceConnectivityRef.current = null
+    whitePlacePendingInUpdaterRef.current = null
+    setConnectivityChoice(payload)
+    setPendingAction('white_place')
+  }, [whitePlaceConnectivityTrigger, state.phase])
 
+  // 仅在「某格黑原子数目下降且产生多个不连通子集」时弹窗（由白湮灭黑或进攻/红效果触发）
   const updateState = useCallback((updater) => {
     setState((prev) => {
       const next = { ...prev }
       if (typeof updater === 'function') updater(next)
       return next
     })
+  }, [])
+
+
+  const resetAttackState = useCallback(() => {
+    setActionSubstate('idle')
+    setAttackMyCell(null)
+    setAttackEnemyCell(null)
+    setRedEffectSource(null)
   }, [])
 
   const triggerDestroyAnimation = useCallback((destroyedAtoms) => {
@@ -126,21 +155,33 @@ function App() {
       return
     }
     if (color === 'green') {
+      let effectResult
       updateState((s) => {
-        if (applyEffectGreen(s, player, cellIndex, r, c)) {
-          triggerEffectFlash(player, cellIndex, r, c)
-          setAttackMessage('绿效果：该格点变为黑原子')
-        }
+        effectResult = applyEffectGreen(s, player, cellIndex, r, c)
       })
+      if (effectResult === true || (effectResult && effectResult.ok)) {
+        triggerEffectFlash(player, cellIndex, r, c)
+        setAttackMessage('绿效果：该格点变为黑原子')
+      }
+      if (effectResult && typeof effectResult === 'object' && effectResult.connectivityChoice) {
+        setConnectivityChoice(effectResult.connectivityChoice)
+        setPendingAction('green_effect')
+      }
       return
     }
     if (color === 'yellow') {
+      let effectResult
       updateState((s) => {
-        if (applyEffectYellow(s, player, cellIndex, r, c)) {
-          triggerEffectFlash(player, cellIndex, r, c)
-          setAttackMessage('黄效果：相邻黑原子下回合内优先被破坏')
-        }
+        effectResult = applyEffectYellow(s, player, cellIndex, r, c)
       })
+      if (effectResult === true || (effectResult && effectResult.ok)) {
+        triggerEffectFlash(player, cellIndex, r, c)
+        setAttackMessage('黄效果：相邻黑原子下回合内优先被破坏')
+      }
+      if (effectResult && typeof effectResult === 'object' && effectResult.connectivityChoice) {
+        setConnectivityChoice(effectResult.connectivityChoice)
+        setPendingAction('yellow_effect')
+      }
       return
     }
   }, [effectPendingAtom, updateState, triggerEffectFlash])
@@ -161,6 +202,8 @@ function App() {
       updateState((s) => {
         s.attackedCellsThisTurn = s.attackedCellsThisTurn ?? []
         s.attackedCellsThisTurn.push([attackMyCell[0], attackMyCell[1]])
+        s.attackedEnemyCellIndicesThisTurn = s.attackedEnemyCellIndicesThisTurn ?? []
+        s.attackedEnemyCellIndicesThisTurn.push(attackEnemyCell[1])
       })
       resetAttackState()
     } else if (ret.substate === 'idle' && ret.attackConsumed === false) {
@@ -189,14 +232,23 @@ function App() {
 
   const handleConnectivityChoice = useCallback(
     (choiceIndex) => {
-      const cc = connectivityChoice
-      if (!cc || choiceIndex < 0 || choiceIndex >= cc.components.length) return
+      const cc = connectivityChoice ?? state.pendingConnectivityChoice
+      if (!cc) return
+      if (cc.noChoice) {
+        setConnectivityChoice(null)
+        setPendingAction(null)
+        updateState((s) => { s.currentPlayer = cc.placer })
+        setAttackMessage('')
+        return
+      }
+      if (choiceIndex < 0 || choiceIndex >= (cc.components?.length ?? 0)) return
       const { defender, cellIndex, type, components } = cc
       nextConnectivityChoiceRef.current = null
       updateState((s) => {
         const cell = s.cells[defender][cellIndex]
         applyConnectivityChoice(cell, type, components[choiceIndex])
         nextConnectivityChoiceRef.current = getConnectivityChoice(cell)
+        return s
       })
       const next = nextConnectivityChoiceRef.current
       if (next) {
@@ -215,17 +267,35 @@ function App() {
             s.currentPlayer = 1 - defender
             s.attackedCellsThisTurn = s.attackedCellsThisTurn ?? []
             if (attackMyCell) s.attackedCellsThisTurn.push([attackMyCell[0], attackMyCell[1]])
+            s.attackedEnemyCellIndicesThisTurn = s.attackedEnemyCellIndicesThisTurn ?? []
+            s.attackedEnemyCellIndicesThisTurn.push(cellIndex)
           })
           resetAttackState()
           setAttackMessage('进攻完成')
         } else if (pendingAction === 'red_effect') {
-          updateState((s) => { s.currentPlayer = 1 - defender })
+          updateState((s) => {
+            s.currentPlayer = 1 - defender
+            s.redEffectTargetCellIndicesThisTurn = s.redEffectTargetCellIndicesThisTurn ?? []
+            s.redEffectTargetCellIndicesThisTurn.push(cellIndex)
+          })
           setAttackMessage('红效果：已随机破坏对方黑原子')
+        } else if (pendingAction === 'white_place' || state.pendingConnectivityAction === 'white_place') {
+          whitePlacePendingInUpdaterRef.current = null
+          const placer = cc?.placer != null ? cc.placer : 1 - defender
+          updateState((s) => {
+            s.currentPlayer = placer
+            delete s.pendingConnectivityChoice
+            delete s.pendingConnectivityAction
+            return s
+          })
+          setAttackMessage('')
+        } else if (pendingAction === 'green_effect' || pendingAction === 'yellow_effect') {
+          setAttackMessage(pendingAction === 'green_effect' ? '绿效果：该格点变为黑原子' : '黄效果：相邻黑原子下回合内优先被破坏')
         }
         setPendingAction(null)
       }
     },
-    [connectivityChoice, pendingAction, attackMyCell, updateState, resetAttackState]
+    [connectivityChoice, pendingAction, state.pendingConnectivityChoice, state.pendingConnectivityAction, attackMyCell, updateState, resetAttackState]
   )
 
   const handleCellClick = useCallback(
@@ -240,6 +310,11 @@ function App() {
         if (actionSubstate === 'red_effect_target' && player === opp) {
           const src = redEffectSource
           if (src) {
+            const targetable = getRedEffectTargetableEnemyCellIndices(state)
+            if (!targetable.includes(cellIndex)) {
+              setAttackMessage('须先对黄原子数更多的对方格子发动红效果')
+              return
+            }
             const next = { ...state }
             const result = applyEffectRedRandom(next, src.player, src.cellIndex, src.r, src.c, cellIndex)
             setState(next)
@@ -258,6 +333,10 @@ function App() {
                 )
                 updateState((s) => { s.currentPlayer = cc.defender })
               } else {
+                updateState((s) => {
+                  s.redEffectTargetCellIndicesThisTurn = s.redEffectTargetCellIndicesThisTurn ?? []
+                  s.redEffectTargetCellIndicesThisTurn.push(cellIndex)
+                })
                 setAttackMessage('红效果：已随机破坏对方黑原子')
               }
             } else {
@@ -299,7 +378,7 @@ function App() {
           const attackable = getAttackableEnemyCellIndices(state)
           if (player === opp) {
             if (!attackable.includes(cellIndex)) {
-              setAttackMessage('对方有黄原子时，只能攻击有黄原子的格子')
+              setAttackMessage('须先进攻黄原子数更多的对方格子')
               return
             }
           }
@@ -333,8 +412,9 @@ function App() {
         return
       }
 
-      if (state.phase !== PHASE_PLACE || state.currentPlayer !== player) return
-      if (batchMode) {
+      if (state.phase !== PHASE_PLACE) return
+      if (state.currentPlayer !== player && selectedColor !== 'white') return
+      if (batchMode && selectedColor !== 'white') {
         const n = Math.min(Math.max(0, Math.floor(batchCount)), maxBatch)
         if (n <= 0) return
         updateState((s) => {
@@ -367,7 +447,46 @@ function App() {
           }
         })
       } else if (selectedColor && r != null && c != null) {
-        updateState((s) => applyPlace(s, cellIndex, r, c, selectedColor))
+        let placeResult
+        const targetPlayer = selectedColor === 'white' ? player : state.currentPlayer
+        updateState((s) => {
+          const result = applyPlace(s, cellIndex, r, c, selectedColor, selectedColor === 'white' ? { targetPlayer } : undefined)
+          if (result !== false) placeResult = result
+          if (selectedColor === 'white' && result && typeof result === 'object' && result.connectivityChoice) {
+            const choice = result.connectivityChoice
+            const hasMulti = Array.isArray(choice.components) && choice.components.length > 0
+            if (hasMulti) {
+              if (result.defender !== s.currentPlayer) s.currentPlayer = result.defender
+              const payload = {
+                defender: result.defender,
+                cellIndex: result.cellIndex,
+                type: choice.type,
+                components: choice.components,
+                placer: s.currentPlayer,
+              }
+              s.pendingConnectivityChoice = payload
+              s.pendingConnectivityAction = 'white_place'
+              whitePlacePendingInUpdaterRef.current = payload
+            }
+          } else if (selectedColor === 'white' && result === false && whitePlacePendingInUpdaterRef.current) {
+            s.pendingConnectivityChoice = whitePlacePendingInUpdaterRef.current
+            s.pendingConnectivityAction = 'white_place'
+          }
+        })
+        if (selectedColor === 'white' && placeResult && typeof placeResult === 'object') {
+          const choice = placeResult.connectivityChoice
+          const hasComponents = choice && Array.isArray(choice.components) && choice.components.length > 0
+          if (hasComponents) {
+            whitePlaceConnectivityRef.current = {
+              defender: placeResult.defender,
+              cellIndex: placeResult.cellIndex,
+              type: choice.type,
+              components: choice.components,
+              placer: state.currentPlayer,
+            }
+            setWhitePlaceConnectivityTrigger((n) => n + 1)
+          }
+        }
       }
     },
     [
@@ -425,11 +544,21 @@ function App() {
           />
           <span className="text-xs text-gray-500">1:{gridScaleDenom}</span>
           </div>
+          <button
+            onClick={() => setTestMode((t) => !t)}
+            className={`px-3 py-1 rounded text-sm ${testMode ? 'bg-amber-600 ring-2 ring-amber-400' : 'bg-gray-600 hover:bg-gray-500'}`}
+          >
+            测试：连通子集数
+          </button>
         </div>
         {state.phase === PHASE_PLACE && (
           <div className="flex items-center gap-4">
             <button
-              onClick={() => setBatchMode((b) => !b)}
+              onClick={() => {
+                const enablingBatch = !batchMode
+                setBatchMode((b) => !b)
+                if (enablingBatch && selectedColor === 'white') setSelectedColor(null)
+              }}
               className={`px-3 py-1 rounded text-sm text-white ${batchMode ? 'bg-black ring-2 ring-gray-400' : 'bg-gray-800'}`}
             >
               批量放置黑
@@ -449,7 +578,7 @@ function App() {
             )}
             {!batchMode && (
             <div className="flex gap-2">
-            {['red', 'blue', 'green', 'yellow', 'purple'].map((color) => (
+            {['red', 'blue', 'green', 'yellow', 'purple', 'white'].map((color) => (
               <button
                 key={color}
                 onClick={() =>
@@ -466,10 +595,12 @@ function App() {
                         ? 'bg-green-700'
                         : color === 'yellow'
                           ? 'bg-yellow-600'
-                          : 'bg-violet-600'
+                          : color === 'purple'
+                            ? 'bg-violet-600'
+                            : 'bg-gray-200 text-gray-800'
                 }`}
               >
-                {color === 'red' ? '红' : color === 'blue' ? '蓝' : color === 'green' ? '绿' : color === 'yellow' ? '黄' : '紫'}
+                {color === 'red' ? '红' : color === 'blue' ? '蓝' : color === 'green' ? '绿' : color === 'yellow' ? '黄' : color === 'purple' ? '紫' : '白'}
               </button>
             ))}
             </div>
@@ -485,52 +616,77 @@ function App() {
           gridScaleDenom={gridScaleDenom}
           interactionMode={interactionMode}
           attackHighlightCell={attackMyCell ? { player: attackMyCell[0], cellIndex: attackMyCell[1] } : null}
-          connectivityChoice={connectivityChoice}
+          connectivityChoice={connectivityChoice ?? state.pendingConnectivityChoice}
           destroyingAtoms={destroyingAtoms}
           effectFlashAtom={effectFlashAtom}
           effectPendingAtom={effectPendingAtom}
           actionSubstate={actionSubstate}
           attackMyCell={attackMyCell}
           attackEnemyCell={attackEnemyCell}
+          testMode={testMode}
         />
       </main>
       <div className="fixed bottom-0 left-0 right-0 z-10">
         <PlayerBar state={state} player={0} />
       </div>
-      {connectivityChoice && Array.isArray(connectivityChoice.components) && connectivityChoice.components.length > 0 &&
-        createPortal(
+      {(() => {
+        const effectiveCC = connectivityChoice ?? state.pendingConnectivityChoice
+        const effectiveAction = pendingAction ?? state.pendingConnectivityAction
+        const show = effectiveCC && (effectiveCC.noChoice || (Array.isArray(effectiveCC.components) && effectiveCC.components.length > 0))
+        if (!show) return null
+        return createPortal(
           <div className="fixed inset-0 bg-black/40 z-[100] flex items-center justify-start pl-2 pointer-events-none">
             <div className="bg-gray-900 rounded-lg p-3 max-w-[200px] border-2 border-amber-500/80 shadow-xl pointer-events-auto">
               <h3 className="text-sm font-semibold text-amber-400 mb-1">
-                {connectivityChoice.type === 'all'
-                  ? '步骤(1)：该格不连通'
-                  : '步骤(2)：多个黑连通子集'}
+                {effectiveCC.noChoice
+                  ? '白原子已湮灭'
+                  : effectiveAction === 'white_place'
+                    ? '白原子湮灭后：选择保留子集'
+                    : effectiveAction === 'green_effect'
+                      ? '绿效果后：选择保留子集'
+                      : effectiveAction === 'yellow_effect'
+                        ? '黄效果后：选择保留子集'
+                        : effectiveCC.type === 'all'
+                          ? '步骤(1)：该格不连通'
+                          : '步骤(2)：多个黑连通子集'}
               </h3>
-              <p className="text-xs text-gray-300 mb-2">
-                可拖动视角查看格子，选保留子集：
-              </p>
-              <div className="flex flex-col gap-1.5">
-                {[
-                  { bg: 'bg-amber-600', hover: 'hover:bg-amber-500', label: '琥珀' },
-                  { bg: 'bg-cyan-600', hover: 'hover:bg-cyan-500', label: '青' },
-                  { bg: 'bg-pink-600', hover: 'hover:bg-pink-500', label: '粉' },
-                  { bg: 'bg-emerald-600', hover: 'hover:bg-emerald-500', label: '翠绿' },
-                  { bg: 'bg-violet-600', hover: 'hover:bg-violet-500', label: '紫' },
-                ].slice(0, connectivityChoice.components.length).map((style, i) => (
-                  <button
-                    key={i}
-                    onClick={() => handleConnectivityChoice(i)}
-                    className={`px-2 py-1.5 ${style.bg} ${style.hover} rounded text-xs font-medium flex items-center gap-1.5`}
-                  >
-                    <span className="w-4 h-4 rounded-full bg-white/30 flex items-center justify-center text-[10px] font-bold">{i + 1}</span>
-                    保留 {i + 1}（{style.label}）
-                  </button>
-                ))}
-              </div>
+              {effectiveCC.noChoice ? (
+                <button
+                  onClick={() => handleConnectivityChoice(0)}
+                  className="w-full px-2 py-1.5 bg-amber-600 hover:bg-amber-500 rounded text-xs font-medium"
+                >
+                  确认
+                </button>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-300 mb-2">
+                    可拖动视角查看格子，选保留子集：
+                  </p>
+                  <div className="flex flex-col gap-1.5">
+                    {[
+                      { bg: 'bg-amber-600', hover: 'hover:bg-amber-500', label: '琥珀' },
+                      { bg: 'bg-cyan-600', hover: 'hover:bg-cyan-500', label: '青' },
+                      { bg: 'bg-pink-600', hover: 'hover:bg-pink-500', label: '粉' },
+                      { bg: 'bg-emerald-600', hover: 'hover:bg-emerald-500', label: '翠绿' },
+                      { bg: 'bg-violet-600', hover: 'hover:bg-violet-500', label: '紫' },
+                    ].slice(0, effectiveCC.components.length).map((style, i) => (
+                      <button
+                        key={i}
+                        onClick={() => handleConnectivityChoice(i)}
+                        className={`px-2 py-1.5 ${style.bg} ${style.hover} rounded text-xs font-medium flex items-center gap-1.5`}
+                      >
+                        <span className="w-4 h-4 rounded-full bg-white/30 flex items-center justify-center text-[10px] font-bold">{i + 1}</span>
+                        保留 {i + 1}（{style.label}）
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           </div>,
           document.body
-        )}
+        )
+      })()}
       <HUD
         state={state}
         setState={setState}
@@ -558,7 +714,7 @@ function App() {
         }}
         onDirectAttackCancel={resetAttackState}
         attackMessage={attackMessage}
-        connectivityChoice={connectivityChoice}
+        connectivityChoice={connectivityChoice ?? state.pendingConnectivityChoice}
         onConnectivityChoice={handleConnectivityChoice}
         effectPendingAtom={effectPendingAtom}
         onEffectConfirm={handleEffectConfirm}
@@ -588,12 +744,12 @@ function PlayerBar({ state, player }) {
         <span className="text-sm text-gray-400">{hp}/{maxHp}</span>
       </div>
       <div className="flex gap-1">
-        {['black', 'red', 'blue', 'green', 'yellow', 'purple'].map((color) => (
+        {['black', 'red', 'blue', 'green', 'yellow', 'purple', 'white'].map((color) => (
           <span
             key={color}
             className={`px-2 py-0.5 rounded text-xs ${
-              color === 'black' ? 'bg-gray-700' : color === 'red' ? 'bg-red-700' : color === 'blue' ? 'bg-blue-700' : color === 'green' ? 'bg-green-700' : color === 'yellow' ? 'bg-yellow-600' : 'bg-violet-600'
-            } text-white`}
+              color === 'black' ? 'bg-gray-700' : color === 'red' ? 'bg-red-700' : color === 'blue' ? 'bg-blue-700' : color === 'green' ? 'bg-green-700' : color === 'yellow' ? 'bg-yellow-600' : color === 'purple' ? 'bg-violet-600' : 'bg-gray-200 text-gray-800'
+            } ${color !== 'white' ? 'text-white' : ''}`}
           >
             {(p[color] ?? 0)}
           </span>
