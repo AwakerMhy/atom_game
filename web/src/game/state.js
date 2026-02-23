@@ -37,8 +37,8 @@ export function createGameState(config = {}) {
     cellCount: 3,
     ...config,
   }
-  const base = [3, 1, 1, 1, 1, 0, 0]
-  const numColors = 7
+  const base = [3, 1, 1, 1, 1, 0, 0, 0]
+  const numColors = 8
   const wIn = Array.isArray(cfg.drawWeights) ? cfg.drawWeights : base
   const weights = wIn.length >= numColors ? wIn.slice(0, numColors) : [...wIn, ...Array(numColors - wIn.length).fill(0)].slice(0, numColors)
   const hpVal = Math.max(1, Math.min(99, cfg.initialHp ?? INITIAL_HP))
@@ -68,6 +68,8 @@ export function createGameState(config = {}) {
     blueProtectionUntilTurn: {},
     yellowPriorityPoints: { 0: new Set(), 1: new Set() },
     yellowPriorityUntilTurn: {},
+    graySilencedPoints: { 0: new Set(), 1: new Set() },
+    graySilencedUntilTurn: {},
     placementHistory: [],
   }
 }
@@ -124,6 +126,14 @@ export function isBlackYellowPriority(state, player, cellIndex, pt) {
   return state.yellowPriorityPoints[player]?.has(`${cellIndex}:${pk}`) ?? false
 }
 
+/** 该格点是否处于灰原子点击效果的沉默区域内（下一回合内不可发动其他原子点击效果） */
+export function isGraySilenced(state, player, cellIndex, pt) {
+  const pk = typeof pt === 'string' ? pt : `${pt[0]},${pt[1]}`
+  const until = state.graySilencedUntilTurn?.[player]
+  if (until == null || state.turnNumber >= until) return false
+  return state.graySilencedPoints[player]?.has(`${cellIndex}:${pk}`) ?? false
+}
+
 /** 返回该玩家有黄原子的格子索引列表 */
 export function cellsWithYellow(state, player) {
   const out = []
@@ -143,12 +153,18 @@ export function yellowCountInCell(cell) {
  * 黄原子持续效果：对方若要进攻我方某格（该格有 x 个黄原子），须已进攻过所有「黄原子数严格大于 x」的我方格子。
  * 因此按黄原子数从多到少依次可被选为攻击目标。
  */
+/** 有灰原子的格子内黄持续效果无效 */
+function effectiveYellowCountInCell(cell) {
+  if (cell.hasGray?.()) return 0
+  return yellowCountInCell(cell)
+}
+
 export function getAttackableEnemyCellIndices(state) {
   const opp = 1 - state.currentPlayer
   const cells = state.cells[opp]
   const n = cells.length
   const attackedSet = new Set(state.attackedEnemyCellIndicesThisTurn ?? [])
-  const yellowCounts = cells.map((c) => yellowCountInCell(c))
+  const yellowCounts = cells.map((c) => effectiveYellowCountInCell(c))
 
   const candidateIndices = Array.from({ length: n }, (_, i) => i).filter(
     (i) => !cells[i].isEmpty() && cells[i].hasBlack()
@@ -175,7 +191,7 @@ export function getRedEffectTargetableEnemyCellIndices(state) {
   const cells = state.cells[opp]
   const n = cells.length
   const doneSet = new Set(state.redEffectTargetCellIndicesThisTurn ?? [])
-  const yellowCounts = cells.map((c) => yellowCountInCell(c))
+  const yellowCounts = cells.map((c) => effectiveYellowCountInCell(c))
 
   const candidateIndices = Array.from({ length: n }, (_, i) => i).filter(
     (i) => !cells[i].isEmpty() && cells[i].hasBlack()

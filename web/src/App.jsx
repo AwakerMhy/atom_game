@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { createGameState, pool, canAttackThisTurn, opponent, hasCellAttackedThisTurn, getAttackableEnemyCellIndices, getRedEffectTargetableEnemyCellIndices } from './game/state.js'
+import { createGameState, pool, canAttackThisTurn, opponent, hasCellAttackedThisTurn, getAttackableEnemyCellIndices, getRedEffectTargetableEnemyCellIndices, isGraySilenced } from './game/state.js'
 import { startTurnDefault } from './game/turn.js'
 import { applyPlace, batchPlaceOnCell } from './game/turn.js'
 import {
@@ -8,7 +8,7 @@ import {
   handleAttackEnemyCell,
   clearCellsWithNoBlack,
 } from './game/attack.js'
-import { applyEffectBlue, applyEffectGreen, applyEffectYellow, applyEffectRedRandom, getConnectivityChoice, applyConnectivityChoice } from './game/combat.js'
+import { applyEffectBlue, applyEffectGreen, applyEffectYellow, applyEffectRedRandom, applyEffectGray, getConnectivityChoice, applyConnectivityChoice } from './game/combat.js'
 import { PHASE_PLACE, PHASE_ACTION, INITIAL_HP, ATOM_BLACK } from './game/config.js'
 import { Cell } from './game/cell.js'
 import Board from './components/Board.jsx'
@@ -184,6 +184,17 @@ function App() {
       }
       return
     }
+    if (color === 'gray') {
+      let grayOk = false
+      updateState((s) => {
+        grayOk = applyEffectGray(s, player, cellIndex, r, c)
+      })
+      if (grayOk) {
+        triggerEffectFlash(player, cellIndex, r, c)
+        setAttackMessage('灰效果：周围格点下一回合内无法发动其他原子点击效果')
+      }
+      return
+    }
   }, [effectPendingAtom, updateState, triggerEffectFlash])
 
   const handleEffectCancel = useCallback(() => {
@@ -349,6 +360,10 @@ function App() {
         if (actionSubstate === 'idle' && player === cur && ptKey != null) {
           const cell = state.cells[cur][cellIndex]
           const color = cell.get(r, c)
+          if (isGraySilenced(state, cur, cellIndex, [r, c])) {
+            setAttackMessage('该格点处于灰原子沉默区内，下一回合内无法发动点击效果')
+            return
+          }
           if (color === 'red') {
             const y = cell.effectiveBlackNeighborCount(r, c)
             if (y > 0) {
@@ -367,6 +382,10 @@ function App() {
           } else if (color === 'yellow') {
             setEffectPendingAtom({ player: cur, cellIndex, r, c, color: 'yellow' })
             setAttackMessage('请确认发动黄效果')
+            return
+          } else if (color === 'gray') {
+            setEffectPendingAtom({ player: cur, cellIndex, r, c, color: 'gray' })
+            setAttackMessage('请确认发动灰效果：周围格点下一回合内无法发动其他原子点击效果')
             return
           } else if (color === 'purple') {
             setAttackMessage('紫原子无点击效果')
@@ -413,7 +432,7 @@ function App() {
       }
 
       if (state.phase !== PHASE_PLACE) return
-      if (state.currentPlayer !== player && selectedColor !== 'white') return
+      if (state.currentPlayer !== player && selectedColor !== 'white' && selectedColor !== 'gray') return
       if (batchMode && selectedColor !== 'white') {
         const n = Math.min(Math.max(0, Math.floor(batchCount)), maxBatch)
         if (n <= 0) return
@@ -448,9 +467,9 @@ function App() {
         })
       } else if (selectedColor && r != null && c != null) {
         let placeResult
-        const targetPlayer = selectedColor === 'white' ? player : state.currentPlayer
+        const targetPlayer = selectedColor === 'white' || selectedColor === 'gray' ? player : state.currentPlayer
         updateState((s) => {
-          const result = applyPlace(s, cellIndex, r, c, selectedColor, selectedColor === 'white' ? { targetPlayer } : undefined)
+          const result = applyPlace(s, cellIndex, r, c, selectedColor, (selectedColor === 'white' || selectedColor === 'gray') ? { targetPlayer } : undefined)
           if (result !== false) placeResult = result
           if (selectedColor === 'white' && result && typeof result === 'object' && result.connectivityChoice) {
             const choice = result.connectivityChoice
@@ -578,7 +597,7 @@ function App() {
             )}
             {!batchMode && (
             <div className="flex gap-2">
-            {['red', 'blue', 'green', 'yellow', 'purple', 'white'].map((color) => (
+            {['red', 'blue', 'green', 'yellow', 'purple', 'white', 'gray'].map((color) => (
               <button
                 key={color}
                 onClick={() =>
@@ -597,10 +616,12 @@ function App() {
                           ? 'bg-yellow-600'
                           : color === 'purple'
                             ? 'bg-violet-600'
-                            : 'bg-gray-200 text-gray-800'
+                            : color === 'white'
+                              ? 'bg-gray-200 text-gray-800'
+                              : 'bg-gray-500'
                 }`}
               >
-                {color === 'red' ? '红' : color === 'blue' ? '蓝' : color === 'green' ? '绿' : color === 'yellow' ? '黄' : color === 'purple' ? '紫' : '白'}
+                {color === 'red' ? '红' : color === 'blue' ? '蓝' : color === 'green' ? '绿' : color === 'yellow' ? '黄' : color === 'purple' ? '紫' : color === 'white' ? '白' : '灰'}
               </button>
             ))}
             </div>
@@ -744,11 +765,11 @@ function PlayerBar({ state, player }) {
         <span className="text-sm text-gray-400">{hp}/{maxHp}</span>
       </div>
       <div className="flex gap-1">
-        {['black', 'red', 'blue', 'green', 'yellow', 'purple', 'white'].map((color) => (
+        {['black', 'red', 'blue', 'green', 'yellow', 'purple', 'white', 'gray'].map((color) => (
           <span
             key={color}
             className={`px-2 py-0.5 rounded text-xs ${
-              color === 'black' ? 'bg-gray-700' : color === 'red' ? 'bg-red-700' : color === 'blue' ? 'bg-blue-700' : color === 'green' ? 'bg-green-700' : color === 'yellow' ? 'bg-yellow-600' : color === 'purple' ? 'bg-violet-600' : 'bg-gray-200 text-gray-800'
+              color === 'black' ? 'bg-gray-700' : color === 'red' ? 'bg-red-700' : color === 'blue' ? 'bg-blue-700' : color === 'green' ? 'bg-green-700' : color === 'yellow' ? 'bg-yellow-600' : color === 'purple' ? 'bg-violet-600' : color === 'white' ? 'bg-gray-200 text-gray-800' : 'bg-gray-500'
             } ${color !== 'white' ? 'text-white' : ''}`}
           >
             {(p[color] ?? 0)}

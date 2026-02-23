@@ -11,6 +11,7 @@ import {
   CHOICE_EXTRA_ATTACK,
   ATOM_BLACK,
   ATOM_WHITE,
+  ATOM_GRAY,
 } from './config.js'
 import { drawAtoms } from './draw.js'
 import { xForTurn } from './state.js'
@@ -64,7 +65,10 @@ export function validatePlace(state, cellIndex, r, c, color, options = {}) {
   if (state.turnPlacedCount >= state.turnPlaceLimit) return [false, '本回合放置数已达上限']
   const pool = state.pools[state.currentPlayer]
   if ((pool[color] ?? 0) <= 0) return [false, '没有该颜色原子']
-  const targetPlayer = color === ATOM_WHITE && options.targetPlayer != null ? options.targetPlayer : state.currentPlayer
+  const targetPlayer =
+    (color === ATOM_WHITE || color === ATOM_GRAY) && options.targetPlayer != null
+      ? options.targetPlayer
+      : state.currentPlayer
   const cells = state.cells[targetPlayer]
   if (cellIndex < 0 || cellIndex >= cells.length) return [false, '无效格子']
   const cell = cells[cellIndex]
@@ -73,7 +77,7 @@ export function validatePlace(state, cellIndex, r, c, color, options = {}) {
     if (cell.get(r, c) == null) return [false, '白原子需点击格上已有原子才能发动（删除该原子并消耗 1 个白原子）']
     return [true, '']
   }
-  if (targetPlayer !== state.currentPlayer) return [false, '仅白原子可作用于对方格子']
+  if (targetPlayer !== state.currentPlayer && color !== ATOM_GRAY) return [false, '仅白/灰原子可作用于对方格子']
   if (cell.get(r, c) != null) return [false, '该格点已有原子']
   const blacks = cell.blackPoints()
   if (color === ATOM_BLACK) {
@@ -81,6 +85,10 @@ export function validatePlace(state, cellIndex, r, c, color, options = {}) {
       const hasBlackNeighbor = cell.grid.neighborsOf(r, c).some(([nr, nc]) => blacks.has(`${nr},${nc}`))
       if (!hasBlackNeighbor) return [false, '黑原子必须与已有黑原子相邻']
     }
+  } else if (color === ATOM_GRAY) {
+    const hasBlackNeighbor = cell.grid.neighborsOf(r, c).some(([nr, nc]) => blacks.has(`${nr},${nc}`))
+    if (!hasBlackNeighbor)
+      return [false, targetPlayer !== state.currentPlayer ? '灰原子必须放在对方格子中黑原子的邻居格点上' : '灰原子必须与至少一个黑原子相邻']
   } else {
     const hasBlackNeighbor = cell.grid.neighborsOf(r, c).some(([nr, nc]) => blacks.has(`${nr},${nc}`))
     if (!hasBlackNeighbor) return [false, '红/蓝/绿/黄/紫必须与至少一个黑原子相邻']
@@ -99,7 +107,10 @@ export function validatePlace(state, cellIndex, r, c, color, options = {}) {
 }
 
 export function applyPlace(state, cellIndex, r, c, color, options = {}) {
-  const targetPlayer = color === ATOM_WHITE && options.targetPlayer != null ? options.targetPlayer : state.currentPlayer
+  const targetPlayer =
+    (color === ATOM_WHITE || color === ATOM_GRAY) && options.targetPlayer != null
+      ? options.targetPlayer
+      : state.currentPlayer
   const [ok, msg] = validatePlace(state, cellIndex, r, c, color, options)
   if (!ok) return false
   const cell = state.cells[targetPlayer][cellIndex]
@@ -113,12 +124,12 @@ export function applyPlace(state, cellIndex, r, c, color, options = {}) {
     const connectivityChoice = getConnectivityChoice(cell)
     return { applied: true, connectivityChoice, defender: targetPlayer, cellIndex }
   }
-  const cellOwn = state.cells[state.currentPlayer][cellIndex]
-  cellOwn.place(r, c, color)
+  const targetCell = state.cells[targetPlayer][cellIndex]
+  targetCell.place(r, c, color)
   state.pools[state.currentPlayer][color]--
   state.turnPlacedCount++
   state.placementHistory = state.placementHistory ?? []
-  state.placementHistory.push({ player: state.currentPlayer, cellIndex, r, c, color })
+  state.placementHistory.push({ player: state.currentPlayer, targetPlayer, cellIndex, r, c, color })
   return true
 }
 
@@ -143,7 +154,8 @@ export function undoLastPlacement(state) {
   if (idx < 0) return false
   const last = hist[idx]
   hist.splice(idx, 1)
-  const cell = state.cells[last.player][last.cellIndex]
+  const cellOwner = last.targetPlayer ?? last.player
+  const cell = state.cells[cellOwner][last.cellIndex]
   cell.remove(last.r, last.c)
   state.pools[last.player][last.color] = (state.pools[last.player][last.color] ?? 0) + 1
   state.turnPlacedCount--
@@ -256,6 +268,9 @@ export function endTurn(state) {
     }
     if (state.yellowPriorityUntilTurn[p] != null && state.turnNumber >= state.yellowPriorityUntilTurn[p]) {
       state.yellowPriorityPoints[p] = new Set()
+    }
+    if (state.graySilencedUntilTurn[p] != null && state.turnNumber >= state.graySilencedUntilTurn[p]) {
+      state.graySilencedPoints[p] = new Set()
     }
   }
 }

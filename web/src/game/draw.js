@@ -1,10 +1,10 @@
 /**
  * Weighted random draw for atoms
  */
-import { ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW, ATOM_PURPLE, ATOM_WHITE } from './config.js'
+import { ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW, ATOM_PURPLE, ATOM_WHITE, ATOM_GRAY } from './config.js'
 
-const COLOR_LIST = [ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW, ATOM_PURPLE, ATOM_WHITE]
-const DEFAULT_WEIGHTS = [3, 1, 1, 1, 1, 0, 0]
+const COLOR_LIST = [ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW, ATOM_PURPLE, ATOM_WHITE, ATOM_GRAY]
+const DEFAULT_WEIGHTS = [3, 1, 1, 1, 1, 0, 0, 0]
 
 export function drawAtoms(n, weights = DEFAULT_WEIGHTS) {
   const result = []

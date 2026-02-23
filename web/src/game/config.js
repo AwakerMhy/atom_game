@@ -8,7 +8,8 @@ export const ATOM_GREEN = 'green'
 export const ATOM_YELLOW = 'yellow'
 export const ATOM_PURPLE = 'purple'
 export const ATOM_WHITE = 'white'
-export const COLORS = [ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW, ATOM_PURPLE, ATOM_WHITE]
+export const ATOM_GRAY = 'gray'
+export const COLORS = [ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW, ATOM_PURPLE, ATOM_WHITE, ATOM_GRAY]
 
 export const TRI_HEIGHT = Math.sqrt(3) / 2
 export const INITIAL_HP = 20
@@ -20,6 +21,7 @@ export const INITIAL_POOL = {
   [ATOM_YELLOW]: 0,
   [ATOM_PURPLE]: 0,
   [ATOM_WHITE]: 0,
+  [ATOM_GRAY]: 0,
 }
 
 export const PHASE_CONFIRM = 0

@@ -2,7 +2,7 @@
  * Attack/defense, destroy, connectivity, effects.
  */
 import { verticalDistanceUnits, horizontalDistanceUnits } from './grid.js'
-import { ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW, ATOM_PURPLE } from './config.js'
+import { ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW, ATOM_PURPLE, ATOM_GRAY } from './config.js'
 
 export function attackPower(cell) {
   const blacks = cell.blackPoints()
@@ -28,8 +28,10 @@ export function extraDestroys(attackerCell, defenderCell) {
     if (color === ATOM_RED) redSum += attackerCell.effectiveBlackNeighborCount(r, c)
   }
   let blueSum = 0
-  for (const [[r, c], color] of defenderCell.allAtoms()) {
-    if (color === ATOM_BLUE) blueSum += defenderCell.effectiveBlackNeighborCount(r, c)
+  if (!defenderCell.hasGray?.()) {
+    for (const [[r, c], color] of defenderCell.allAtoms()) {
+      if (color === ATOM_BLUE) blueSum += defenderCell.effectiveBlackNeighborCount(r, c)
+    }
   }
   return Math.max(0, redSum - blueSum)
 }
@@ -54,7 +56,8 @@ function shuffleArray(arr) {
  */
 export function selectAndDestroyBlackTargets(state, defender, cellIndex, defCell, x, actuallyDestroy = true) {
   const allBlacks = [...defCell.blackPoints()]
-  const yellowPriority = allBlacks.filter((k) => state.yellowPriorityPoints?.[defender]?.has(`${cellIndex}:${k}`) ?? false)
+  const yellowPriority =
+    defCell.hasGray?.() ? [] : allBlacks.filter((k) => state.yellowPriorityPoints?.[defender]?.has(`${cellIndex}:${k}`) ?? false)
   const otherBlacks = allBlacks.filter((k) => !yellowPriority.includes(k))
   const y = yellowPriority.length
 
@@ -330,6 +333,7 @@ export function applyEffectGreen(state, player, cellIndex, r, c) {
 export function applyGreenEndOfTurn(state, player) {
   let total = 0
   for (const cell of state.cells[player]) {
+    if (cell.hasGray?.()) continue
     for (const [[r, c], color] of cell.allAtoms()) {
       if (color === ATOM_GREEN) total += cell.effectiveBlackNeighborCount(r, c)
     }
@@ -338,4 +342,26 @@ export function applyGreenEndOfTurn(state, player) {
     state.pools[player][ATOM_BLACK] = (state.pools[player][ATOM_BLACK] ?? 0) + total
   }
   return total
+}
+
+/**
+ * 灰原子点击效果：其周围（同格邻居格点）其他类型原子的点击效果在下一回合内不能发动；用灰色高亮标出沉默区域。
+ */
+export function applyEffectGray(state, player, cellIndex, r, c) {
+  const cells = state.cells[player]
+  if (cellIndex < 0 || cellIndex >= cells.length) return false
+  const cell = cells[cellIndex]
+  if (cell.get(r, c) !== ATOM_GRAY) return false
+  cell.remove(r, c)
+  const newSilenced = new Set()
+  for (const [nr, nc] of cell.grid.neighborsOf(r, c)) {
+    if (cell.grid.inBounds(nr, nc)) newSilenced.add(`${cellIndex}:${nr},${nc}`)
+  }
+  const existing = state.graySilencedPoints[player]
+  state.graySilencedPoints[player] = existing ? new Set([...existing, ...newSilenced]) : newSilenced
+  const until = state.turnNumber + 2
+  if (state.graySilencedUntilTurn[player] == null || state.graySilencedUntilTurn[player] < until) {
+    state.graySilencedUntilTurn[player] = until
+  }
+  return true
 }

@@ -2,7 +2,7 @@ import { useMemo, useState, useRef, useCallback } from 'react'
 import { pointToXy, neighbors, distanceBetween } from '../game/grid.js'
 import { pixelToGrid } from '../utils/hex.js'
 import { attackPower, defensePower } from '../game/combat.js'
-import { ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW } from '../game/config.js'
+import { ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW, ATOM_GRAY } from '../game/config.js'
 import { isBlackProtected, isBlackYellowPriority } from '../game/state.js'
 
 const CELL_SIDE = 200
@@ -23,6 +23,7 @@ const ATOM_COLORS = {
   yellow: '#c8a832',
   purple: '#7c3aed',
   white: '#e8e8e8',
+  gray: '#6b7280',
 }
 
 function toPx(r, c, scale, ox, oy) {
@@ -136,6 +137,27 @@ function CellView({
 
   const atoms = cell.allAtoms()
   const occupiedPoints = useMemo(() => new Set(atoms.map(([[r, c]]) => `${r},${c}`)), [atoms])
+  const graySilencedInCell = useMemo(() => {
+    const until = state?.graySilencedUntilTurn?.[player]
+    if (until == null || state?.turnNumber >= until) return new Set()
+    const points = state?.graySilencedPoints?.[player]
+    if (!points) return new Set()
+    const prefix = `${cellIndex}:`
+    const set = new Set()
+    points.forEach((key) => {
+      if (key.startsWith(prefix)) set.add(key.slice(prefix.length))
+    })
+    return set
+  }, [state, player, cellIndex, state?.graySilencedPoints, state?.graySilencedUntilTurn, state?.turnNumber])
+  const grayPreviewSilence = useMemo(() => {
+    if (effectPendingAtom?.color !== 'gray' || effectPendingAtom?.player !== player || effectPendingAtom?.cellIndex !== cellIndex)
+      return new Set()
+    const set = new Set()
+    for (const [nr, nc] of cell.grid.neighborsOf(effectPendingAtom.r, effectPendingAtom.c)) {
+      set.add(`${nr},${nc}`)
+    }
+    return set
+  }, [effectPendingAtom, player, cellIndex, cell])
   const atk = attackPower(cell)
   const def = defensePower(cell)
   let redY = 0
@@ -143,6 +165,7 @@ function CellView({
   let greenY = 0
   let yellowY = 0
   let purpleCount = 0
+  let grayCount = 0
   for (const [[r, c], color] of atoms) {
     const y = cell.effectiveBlackNeighborCount(r, c)
     if (color === ATOM_RED) redY += y
@@ -150,6 +173,7 @@ function CellView({
     else if (color === ATOM_GREEN) greenY += y
     else if (color === ATOM_YELLOW) yellowY += y
     else if (color === 'purple') purpleCount += 1
+    else if (color === ATOM_GRAY) grayCount += 1
   }
 
   return (
@@ -199,15 +223,17 @@ function CellView({
           const hasAtom = atoms.some(([[ar, ac]]) => ar === r && ac === c)
           const dotR = hasAtom ? 0 : Math.max(1, scale * 0.1)
           const fill = hasAtom ? 'transparent' : '#8a9c78'
-          if (dotR <= 0) return null
+          const isGraySilenced = graySilencedInCell.has(`${r},${c}`) || grayPreviewSilence.has(`${r},${c}`)
+          if (dotR <= 0 && !isGraySilenced) return null
           return (
-            <circle
-              key={`dot-${r},${c}`}
-              cx={p.x}
-              cy={p.y}
-              r={dotR}
-              fill={fill}
-            />
+            <g key={`dot-${r},${c}`}>
+              {dotR > 0 && (
+                <circle cx={p.x} cy={p.y} r={dotR} fill={fill} />
+              )}
+              {isGraySilenced && (
+                <circle cx={p.x} cy={p.y} r={scale * 0.34} fill="none" stroke="#6b7280" strokeWidth={scale * 0.06} strokeOpacity={0.9} />
+              )}
+            </g>
           )
         })}
         {destroyingAtoms.map(({ r, c, color }) => {
@@ -315,7 +341,7 @@ function CellView({
         fill="#e2e8f0"
         fontSize="11"
       >
-        红: {redY}  蓝: {blueY}  绿: {greenY}  黄: {yellowY}  紫: {purpleCount}
+        红: {redY}  蓝: {blueY}  绿: {greenY}  黄: {yellowY}  紫: {purpleCount}  灰: {grayCount}
         {testMode && (
           <tspan fill="#fbbf24" fontWeight="bold">
             {'  |  连通: '}{cell.connectedComponents().length}
