@@ -9,10 +9,13 @@ const DEFAULT_WEIGHTS = [3, 1, 1, 1, 1, 0, 0, 0]
 
 export default function StartScreen({ onStart, defaultConfig = {} }) {
   const [showRules, setShowRules] = useState(false)
+  const [gameMode, setGameMode] = useState(defaultConfig.gameMode ?? 'normal')
   const [baseDrawCount, setBaseDrawCount] = useState(defaultConfig.baseDrawCount ?? 10)
   const [basePlaceLimit, setBasePlaceLimit] = useState(defaultConfig.basePlaceLimit ?? 10)
   const [initialHp, setInitialHp] = useState(defaultConfig.initialHp ?? 20)
   const [cellCount, setCellCount] = useState(defaultConfig.cellCount ?? 3)
+  const [aiBlackPerTurn, setAiBlackPerTurn] = useState(defaultConfig.aiBlackPerTurn ?? 5)
+  const [aiPlaceLimit, setAiPlaceLimit] = useState(defaultConfig.aiPlaceLimit ?? 5)
   const [drawWeights, setDrawWeights] = useState(
     () => {
       const w = defaultConfig.drawWeights
@@ -34,13 +37,19 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
   }
 
   const handleStart = () => {
-    onStart({
+    const config = {
+      gameMode,
       baseDrawCount: Math.max(1, Math.min(30, baseDrawCount)),
       basePlaceLimit: Math.max(1, Math.min(30, basePlaceLimit)),
       initialHp: Math.max(1, Math.min(99, initialHp)),
       cellCount: Math.max(2, Math.min(6, cellCount)),
       drawWeights: drawWeights.map((x) => Math.max(0, Math.min(20, x))),
-    })
+    }
+    if (gameMode === 'ai_level1') {
+      config.aiBlackPerTurn = Math.max(0, Math.min(30, aiBlackPerTurn))
+      config.aiPlaceLimit = Math.max(0, Math.min(30, aiPlaceLimit))
+    }
+    onStart(config)
   }
 
   const colorKeys = COLORS
@@ -85,8 +94,62 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
         <h1 className="mb-6 text-center text-2xl font-bold text-amber-400">原子对战</h1>
         <p className="mb-6 text-center text-sm text-gray-400">配置本局规则后点击开始</p>
 
+        <div className="mb-6 flex gap-2 justify-center">
+          <button
+            type="button"
+            onClick={() => setGameMode('normal')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium ${gameMode === 'normal' ? 'bg-amber-600 text-white' : 'bg-gray-600 text-gray-300 hover:bg-gray-500'}`}
+          >
+            主游戏
+          </button>
+          <button
+            type="button"
+            onClick={() => setGameMode('ai_level1')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium ${gameMode === 'ai_level1' ? 'bg-amber-600 text-white' : 'bg-gray-600 text-gray-300 hover:bg-gray-500'}`}
+          >
+            AI 对战
+          </button>
+        </div>
+
+        {gameMode === 'ai_level1' && (
+          <div className="mb-6 p-4 rounded-lg bg-gray-700/50 border border-gray-600">
+            <p className="text-sm font-medium text-amber-300 mb-3">第一关（AI 仅使用黑原子）</p>
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-400">AI 每局获得黑原子</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={30}
+                    value={aiBlackPerTurn}
+                    onChange={(e) => setAiBlackPerTurn(Number(e.target.value))}
+                    className="flex-1"
+                  />
+                  <span className="w-8 text-right font-mono text-amber-400 text-sm">{aiBlackPerTurn}</span>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-400">AI 每回合可排布黑原子数</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={30}
+                    value={aiPlaceLimit}
+                    onChange={(e) => setAiPlaceLimit(Number(e.target.value))}
+                    className="flex-1"
+                  />
+                  <span className="w-8 text-right font-mono text-amber-400 text-sm">{aiPlaceLimit}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8">
           <div className="flex-1 space-y-5">
+            <p className="text-xs text-gray-500">{gameMode === 'ai_level1' ? '玩家（P0）配置' : '双方配置'}</p>
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-300">每局获得原子数</label>
               <div className="flex items-center gap-3">
@@ -136,7 +199,7 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-300">每局可排布原子数</label>
+              <label className="mb-1 block text-sm font-medium text-gray-300">每回合可排布原子数</label>
               <div className="flex items-center gap-3">
                 <input
                   type="range"
@@ -148,7 +211,7 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
                 />
                 <span className="w-10 text-right font-mono text-amber-400">{basePlaceLimit}</span>
               </div>
-              <p className="mt-0.5 text-xs text-gray-500">每回合可放置的原子数量上限</p>
+              <p className="mt-0.5 text-xs text-gray-500">本回合可放置的原子总数上限（所有颜色合计，黑+红+蓝等不超过此数）</p>
             </div>
           </div>
 

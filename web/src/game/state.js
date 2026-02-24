@@ -30,11 +30,14 @@ function makeCells(count) {
 export function createGameState(config = {}) {
   const initialPool = { ...INITIAL_POOL }
   const cfg = {
+    gameMode: 'normal',
     baseDrawCount: 10,
     basePlaceLimit: 10,
     drawWeights: [3, 1, 1, 1, 1, 0, 0],
     initialHp: INITIAL_HP,
     cellCount: 3,
+    aiBlackPerTurn: 5,
+    aiPlaceLimit: 5,
     ...config,
   }
   const base = [3, 1, 1, 1, 1, 0, 0, 0]
@@ -159,11 +162,19 @@ function effectiveYellowCountInCell(cell) {
   return yellowCountInCell(cell)
 }
 
+/** 黄持续效果：进攻/红效果均须先对「黄原子数严格大于 x」的格子完成进攻或红效果。返回「已完成」（已进攻或已发动红效果）的对方格子索引集合。 */
+function yellowDoneEnemyCellIndices(state) {
+  const attacked = new Set(state.attackedEnemyCellIndicesThisTurn ?? [])
+  const redDone = new Set(state.redEffectTargetCellIndicesThisTurn ?? [])
+  const done = new Set([...attacked, ...redDone])
+  return done
+}
+
 export function getAttackableEnemyCellIndices(state) {
   const opp = 1 - state.currentPlayer
   const cells = state.cells[opp]
   const n = cells.length
-  const attackedSet = new Set(state.attackedEnemyCellIndicesThisTurn ?? [])
+  const doneSet = yellowDoneEnemyCellIndices(state)
   const yellowCounts = cells.map((c) => effectiveYellowCountInCell(c))
 
   const candidateIndices = Array.from({ length: n }, (_, i) => i).filter(
@@ -174,7 +185,7 @@ export function getAttackableEnemyCellIndices(state) {
   const attackable = candidateIndices.filter((i) => {
     const x = yellowCounts[i]
     for (let j = 0; j < n; j++) {
-      if (yellowCounts[j] > x && !attackedSet.has(j)) return false
+      if (yellowCounts[j] > x && !doneSet.has(j)) return false
     }
     return true
   })
@@ -183,14 +194,13 @@ export function getAttackableEnemyCellIndices(state) {
 
 /**
  * 红效果可选的对方格子索引。
- * 与进攻相同顺序约束：对方某格有 x 个黄原子时，须已对「黄原子数严格大于 x」的我方其他格子发动过红效果后才能选该格。
+ * 与进攻相同顺序约束：须已进攻过（或对其发动过红效果）所有「黄原子数严格大于 x」的对方格子后，才能选该格。
  */
 export function getRedEffectTargetableEnemyCellIndices(state) {
-  const cur = state.currentPlayer
-  const opp = 1 - cur
+  const opp = 1 - state.currentPlayer
   const cells = state.cells[opp]
   const n = cells.length
-  const doneSet = new Set(state.redEffectTargetCellIndicesThisTurn ?? [])
+  const doneSet = yellowDoneEnemyCellIndices(state)
   const yellowCounts = cells.map((c) => effectiveYellowCountInCell(c))
 
   const candidateIndices = Array.from({ length: n }, (_, i) => i).filter(

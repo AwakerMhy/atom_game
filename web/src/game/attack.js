@@ -6,6 +6,7 @@ import {
   extraDestroys,
   selectAndDestroyBlackTargets,
   getConnectivityChoice,
+  applyConnectivityChoice,
   clearCellIfNoBlack,
   resolveDirectAttack,
 } from './combat.js'
@@ -76,6 +77,49 @@ export function resolveAttackRandom(state, attackMyCell, attackEnemyCell) {
   }
   clearCellsWithNoBlack(state, enP)
   state.turnAttackUsed++
+  return { substate: 'idle', message: '进攻完成', destroyedAtoms }
+}
+
+/**
+ * 同 resolveAttackRandom，但若有连通选择则随机选一个并继续直到无需选择。用于 AI 自动进攻。
+ * Mutates state. Returns { substate: 'idle', message, destroyedAtoms }.
+ */
+export function resolveAttackRandomAuto(state, attackMyCell, attackEnemyCell) {
+  const [myP, myCi] = attackMyCell
+  const [enP, enCi] = attackEnemyCell
+  let defCell = state.cells[enP][enCi]
+  const atkCell = state.cells[myP][myCi]
+  const allBlacks = [...defCell.blackPoints()]
+  if (allBlacks.length === 0) {
+    state.hp[enP] = Math.max(0, (state.hp[enP] ?? 0) - 1)
+    state.turnAttackUsed++
+    clearCellsWithNoBlack(state, enP)
+    return { substate: 'idle', message: '攻击造成 1 点伤害（该格无黑原子）', destroyedAtoms: [] }
+  }
+  const { destroyedAtoms: firstDestroyed } = selectAndDestroyBlackTargets(state, enP, enCi, defCell, 1, true)
+  const destroyedAtoms = [...firstDestroyed]
+  state.hp[enP] = Math.max(0, (state.hp[enP] ?? 0) - 1)
+  defCell = state.cells[enP][enCi]
+  const extra = extraDestroys(atkCell, defCell)
+  if (extra > 0 && defCell.hasBlack()) {
+    const { destroyedAtoms: extraDestroyed } = selectAndDestroyBlackTargets(state, enP, enCi, defCell, extra, true)
+    destroyedAtoms.push(...extraDestroyed)
+  }
+  defCell = state.cells[enP][enCi]
+  let choice = getConnectivityChoice(defCell)
+  while (choice) {
+    const idx = Math.floor(Math.random() * choice.components.length)
+    const toKeep = choice.components[idx]
+    applyConnectivityChoice(defCell, choice.type, toKeep)
+    defCell = state.cells[enP][enCi]
+    choice = getConnectivityChoice(defCell)
+  }
+  clearCellsWithNoBlack(state, enP)
+  state.turnAttackUsed++
+  state.attackedCellsThisTurn = state.attackedCellsThisTurn ?? []
+  state.attackedCellsThisTurn.push([myP, myCi])
+  state.attackedEnemyCellIndicesThisTurn = state.attackedEnemyCellIndicesThisTurn ?? []
+  state.attackedEnemyCellIndicesThisTurn.push(enCi)
   return { substate: 'idle', message: '进攻完成', destroyedAtoms }
 }
 

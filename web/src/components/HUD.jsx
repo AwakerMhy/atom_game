@@ -32,7 +32,7 @@ export const RULES_OVERLAY_LINES = [
   "红：进攻时，己方格红原子（与紫相邻时用扩展黑邻跳数）可多破坏 x 个原子。",
   "蓝：遭进攻时，己方格蓝原子（与紫相邻时用扩展黑邻跳数）可少破坏 x 个（最低为 0）。",
   "绿：回合结束时，获得己方所有绿原子有效黑邻数之和的黑原子（与紫相邻时用扩展黑邻跳数）。",
-  "黄：对方若要进攻我方某格（该格有 x 个黄原子），须已进攻过所有「黄原子数严格大于 x」的我方其他格子；红效果对象也须已对过所有「黄原子数严格大于 x」的我方其他格子发动过。与紫相邻时黄点击效果按扩展黑邻跳数计算。",
+  "黄：持续效果中，对方若要进攻（或对其发动红效果）我方某格（该格有 x 个黄原子），须已进攻过（或对其发动过红原子的破坏效果）所有「黄原子数严格大于 x」的我方其他格子。与紫相邻时黄点击效果按扩展黑邻跳数计算。",
   "紫：无持续性数值；其作用是扩展红/蓝/绿/黄的黑邻跳数（多紫可叠加）。",
   "灰：所在格子内其他类型原子的持续效果均无效。",
   "",
@@ -180,9 +180,11 @@ export default function HUD({
       )}
     <div className="fixed right-0 top-24 bottom-20 w-28 flex flex-col gap-2 py-4 pr-2 pl-2 bg-gray-900/90 border-l border-gray-700 z-20">
       <p className="text-xs text-gray-400 px-1 pb-2 border-b border-gray-600">
-        {state.phase === PHASE_PLACE &&
-          `排布 · 已放 ${state.turnPlacedCount}/${state.turnPlaceLimit}`}
-        {state.phase === PHASE_ACTION &&
+        {state.currentPlayer === 1 && state.config?.gameMode === 'ai_level1' &&
+          (state.phase === PHASE_PLACE ? 'AI 回合 · 排布中…' : 'AI 回合 · 进攻中…')}
+        {!(state.currentPlayer === 1 && state.config?.gameMode === 'ai_level1') && state.phase === PHASE_PLACE &&
+          `排布 · 已放 ${Math.max(state.turnPlacedCount ?? 0, (state.placementHistory ?? []).length)}/${state.turnPlaceLimit}（所有颜色合计）`}
+        {!(state.currentPlayer === 1 && state.config?.gameMode === 'ai_level1') && state.phase === PHASE_ACTION &&
           (attackMessage || `动作 · 进攻 ${state.turnAttackUsed}/${state.turnAttackLimit}`)}
       </p>
       <button
@@ -191,7 +193,7 @@ export default function HUD({
       >
         规则
       </button>
-      {state.phase === PHASE_PLACE && (
+      {state.phase === PHASE_PLACE && (state.config?.gameMode !== 'ai_level1' || state.currentPlayer === 0) && (
         <>
           <button
             onClick={() => updateState((s) => undoLastPlacement(s))}
@@ -226,7 +228,7 @@ export default function HUD({
           ))}
         </>
       )}
-      {state.phase === PHASE_ACTION && !connectivityChoice && (
+      {state.phase === PHASE_ACTION && !connectivityChoice && (state.config?.gameMode !== 'ai_level1' || state.currentPlayer === 0) && (
         <>
           <button
             onClick={() => setShowEndTurnConfirm(true)}

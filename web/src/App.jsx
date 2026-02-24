@@ -8,8 +8,9 @@ import {
   handleAttackEnemyCell,
   clearCellsWithNoBlack,
 } from './game/attack.js'
-import { applyEffectBlue, applyEffectGreen, applyEffectYellow, applyEffectRedRandom, applyEffectGray, getConnectivityChoice, applyConnectivityChoice } from './game/combat.js'
+import { applyEffectBlue, applyEffectGreen, applyEffectYellow, applyEffectRedRandom, applyEffectGray, getConnectivityChoice, applyConnectivityChoice, attackPower, defensePower } from './game/combat.js'
 import { PHASE_PLACE, PHASE_ACTION, INITIAL_HP, ATOM_BLACK } from './game/config.js'
+import { runAIPlace, runAIAction } from './game/ai.jsx'
 import { Cell } from './game/cell.js'
 import Board from './components/Board.jsx'
 import HUD from './components/HUD.jsx'
@@ -99,6 +100,30 @@ function App() {
     setConnectivityChoice(payload)
     setPendingAction('white_place')
   }, [whitePlaceConnectivityTrigger, state.phase])
+
+  // AI 对战模式：轮到 P1（AI）时自动执行排布与进攻
+  useEffect(() => {
+    if (!inGame || state.currentPlayer !== 1 || state.config?.gameMode !== 'ai_level1') return
+    const delay = 400
+    if (state.phase === PHASE_PLACE) {
+      const t = setTimeout(() => {
+        setState((prev) => {
+          runAIPlace(prev)
+          return { ...prev }
+        })
+      }, delay)
+      return () => clearTimeout(t)
+    }
+    if (state.phase === PHASE_ACTION) {
+      const t = setTimeout(() => {
+        setState((prev) => {
+          runAIAction(prev)
+          return { ...prev }
+        })
+      }, delay)
+      return () => clearTimeout(t)
+    }
+  }, [inGame, state.currentPlayer, state.phase, state.config?.gameMode])
 
   // 仅在「某格黑原子数目下降且产生多个不连通子集」时弹窗（由白湮灭黑或进攻/红效果触发）
   const updateState = useCallback((updater) => {
@@ -394,10 +419,18 @@ function App() {
         }
 
         if (actionSubstate === 'attack_my' && attackMyCell) {
-          const attackable = getAttackableEnemyCellIndices(state)
+          const attackableByOrder = getAttackableEnemyCellIndices(state)
+          const attackerCell = state.cells[attackMyCell[0]][attackMyCell[1]]
+          const attackable = attackableByOrder.filter(
+            (i) => attackPower(attackerCell) > defensePower(state.cells[opp][i])
+          )
           if (player === opp) {
-            if (!attackable.includes(cellIndex)) {
+            if (!attackableByOrder.includes(cellIndex)) {
               setAttackMessage('须先进攻黄原子数更多的对方格子')
+              return
+            }
+            if (!attackable.includes(cellIndex)) {
+              setAttackMessage('该格防御力不低于己方攻击力，无法进攻')
               return
             }
           }
@@ -433,6 +466,10 @@ function App() {
 
       if (state.phase !== PHASE_PLACE) return
       if (state.currentPlayer !== player && selectedColor !== 'white' && selectedColor !== 'gray') return
+      if (state.turnPlacedCount >= state.turnPlaceLimit) {
+        setAttackMessage('本回合放置数已达上限（所有颜色合计）')
+        return
+      }
       if (batchMode && selectedColor !== 'white') {
         const n = Math.min(Math.max(0, Math.floor(batchCount)), maxBatch)
         if (n <= 0) return
@@ -444,6 +481,7 @@ function App() {
           }
           const player = s.currentPlayer
           s.turnPlacedCount = s.turnPlacedCount + placements.length
+          // 批量黑原子每个都计入「排布 · 已放」，与单次放置（任意颜色）共用同一上限
           s.pools = s.pools.map((p, i) =>
             i === player ? { ...p, [ATOM_BLACK]: (p[ATOM_BLACK] ?? 0) - placements.length } : p
           )
@@ -469,6 +507,7 @@ function App() {
         let placeResult
         const targetPlayer = selectedColor === 'white' || selectedColor === 'gray' ? player : state.currentPlayer
         updateState((s) => {
+          if (s.turnPlacedCount >= s.turnPlaceLimit) return
           const result = applyPlace(s, cellIndex, r, c, selectedColor, (selectedColor === 'white' || selectedColor === 'gray') ? { targetPlayer } : undefined)
           if (result !== false) placeResult = result
           if (selectedColor === 'white' && result && typeof result === 'object' && result.connectivityChoice) {

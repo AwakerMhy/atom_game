@@ -4,6 +4,23 @@
 import { verticalDistanceUnits, horizontalDistanceUnits } from './grid.js'
 import { ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW, ATOM_PURPLE, ATOM_GRAY } from './config.js'
 
+/** 红/蓝/绿/黄/紫/灰：无黑邻居时也会被破坏 */
+const REQUIRES_BLACK_NEIGHBOR = new Set([ATOM_RED, ATOM_BLUE, ATOM_GREEN, ATOM_YELLOW, ATOM_PURPLE, ATOM_GRAY])
+
+/** 移除本格内所有「需要黑邻居但当前无黑邻居」的原子，重复直到稳定 */
+function removeAtomsWithNoBlackNeighbor(cell) {
+  if (cell.isEmpty()) return
+  while (true) {
+    const toRemove = []
+    for (const [[r, c], color] of cell.allAtoms()) {
+      if (!REQUIRES_BLACK_NEIGHBOR.has(color)) continue
+      if (cell.countBlackNeighbors(r, c) === 0) toRemove.push([r, c])
+    }
+    if (toRemove.length === 0) break
+    for (const [r, c] of toRemove) cell.remove(r, c)
+  }
+}
+
 export function attackPower(cell) {
   const blacks = cell.blackPoints()
   return verticalDistanceUnits(blacks)
@@ -208,6 +225,7 @@ export function removeComponentsWithoutBlackAndReturnRest(cell) {
       }
     }
   }
+  removeAtomsWithNoBlackNeighbor(cell)
   return remaining
 }
 

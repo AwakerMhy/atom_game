@@ -53,8 +53,22 @@ export function advanceToPhase1(state) {
 }
 
 export function startTurnDefault(state) {
-  state.turnDrawCount = state.config.baseDrawCount ?? 10
-  state.turnPlaceLimit = state.config.basePlaceLimit ?? 10
+  const cfg = state.config ?? {}
+  if (cfg.gameMode === 'ai_level1' && state.currentPlayer === 1) {
+    state.turnDrawCount = 0
+    const add = Math.max(0, cfg.aiBlackPerTurn ?? 5)
+    state.pools[1][ATOM_BLACK] = (state.pools[1][ATOM_BLACK] ?? 0) + add
+    const limit = Math.max(0, cfg.aiPlaceLimit ?? 5)
+    state.turnPlaceLimit = Math.min(limit, state.pools[1][ATOM_BLACK] ?? 0)
+    state.turnAttackLimit = 1
+    state.phase0Choice = null
+    state.phase = PHASE_PLACE
+    state.turnPlacedCount = 0
+    state.placementHistory = []
+    return
+  }
+  state.turnDrawCount = cfg.baseDrawCount ?? 10
+  state.turnPlaceLimit = cfg.basePlaceLimit ?? 10
   state.turnAttackLimit = 1
   state.phase0Choice = null
   advanceToPhase1(state)
@@ -62,6 +76,7 @@ export function startTurnDefault(state) {
 
 export function validatePlace(state, cellIndex, r, c, color, options = {}) {
   if (state.phase !== PHASE_PLACE) return [false, '当前不是排布阶段']
+  // 可排布原子数 = 本回合能放置的「所有颜色原子数之和」的上限
   if (state.turnPlacedCount >= state.turnPlaceLimit) return [false, '本回合放置数已达上限']
   const pool = state.pools[state.currentPlayer]
   if ((pool[color] ?? 0) <= 0) return [false, '没有该颜色原子']
@@ -81,6 +96,7 @@ export function validatePlace(state, cellIndex, r, c, color, options = {}) {
   if (cell.get(r, c) != null) return [false, '该格点已有原子']
   const blacks = cell.blackPoints()
   if (color === ATOM_BLACK) {
+    // 黑原子只能放在已有黑原子的邻居格点上（或该格首个原子）
     if (blacks.size > 0) {
       const hasBlackNeighbor = cell.grid.neighborsOf(r, c).some(([nr, nc]) => blacks.has(`${nr},${nc}`))
       if (!hasBlackNeighbor) return [false, '黑原子必须与已有黑原子相邻']
@@ -115,6 +131,7 @@ export function applyPlace(state, cellIndex, r, c, color, options = {}) {
   if (!ok) return false
   const cell = state.cells[targetPlayer][cellIndex]
   // 排布阶段白原子效果：点击某格上一颗原子 → 删除该原子，消耗 1 个白原子；若该格随后出现多个不连通子集则由统一规则弹窗选择
+  // turnPlacedCount：不论黑/红/蓝/绿/黄/紫/白/灰，每放置 1 次就 +1，用于「排布 · 已放」与上限校验
   if (color === ATOM_WHITE) {
     cell.remove(r, c)
     state.pools[state.currentPlayer][color]--
@@ -172,10 +189,10 @@ export function batchPlaceOnCell(state, cellIndex, n, viewCenter) {
   const cells = state.cells[state.currentPlayer]
   if (cellIndex < 0 || cellIndex >= cells.length) return [false, '无效格子', null]
   const cell = cells[cellIndex]
-  const count = Math.min(pool[ATOM_BLACK] ?? 0, Math.max(0, n))
-  if (count <= 0) return [false, '数量为 0 或池中无黑原子', null]
   const remaining = state.turnPlaceLimit - state.turnPlacedCount
-  if (count > remaining) return [false, `本回合最多还可放 ${remaining} 个`, null]
+  if (remaining <= 0) return [false, '本回合放置数已达上限', null]
+  const count = Math.min(pool[ATOM_BLACK] ?? 0, Math.max(0, n), remaining)
+  if (count <= 0) return [false, '数量为 0 或池中无黑原子', null]
   const allPts = cell.grid.allPoints()
   const occupied = new Set()
   for (const [k] of cell.allAtoms()) occupied.add(k)
