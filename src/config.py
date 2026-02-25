@@ -5,7 +5,7 @@ import math
 import pygame
 
 # 版本（发布时在此更新）
-VERSION = "1.12.0"
+VERSION = "1.13.0"
 
 # 窗口
 TITLE = "Atom Game"
