@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { createPortal } from 'react-dom'
-import { createGameState, pool, canAttackThisTurn, opponent, hasCellAttackedThisTurn, getAttackableEnemyCellIndices, getRedEffectTargetableEnemyCellIndices, isGraySilenced } from './game/state.js'
+import { createPortal, flushSync } from 'react-dom'
+import { createGameState, pool, canAttackThisTurn, opponent, hasCellAttackedThisTurn, getAttackableEnemyCellIndices, getRedEffectTargetableEnemyCellIndices, isGraySilenced, placementCountThisTurn } from './game/state.js'
 import { startTurnDefault } from './game/turn.js'
-import { applyPlace, batchPlaceOnCell } from './game/turn.js'
+import { applyPlace, batchPlaceOnCell, validatePlace } from './game/turn.js'
 import {
   applyDirectAttack,
   handleAttackEnemyCell,
@@ -10,14 +10,14 @@ import {
 } from './game/attack.js'
 import { applyEffectBlue, applyEffectGreen, applyEffectYellow, applyEffectRedRandom, applyEffectGray, getConnectivityChoice, applyConnectivityChoice, attackPower, defensePower } from './game/combat.js'
 import { PHASE_PLACE, PHASE_ACTION, INITIAL_HP, ATOM_BLACK } from './game/config.js'
-import { runAIPlace, runAIAction } from './game/ai.jsx'
+import { runAIPlace, runAIPlaceStep, runAIPlaceStepLevel2, getAIAttackOptions, runOneAIAttack, runAIEndTurn, runAIRedEffect, runAIBlueEffect } from './game/ai.jsx'
 import { Cell } from './game/cell.js'
 import Board from './components/Board.jsx'
 import HUD from './components/HUD.jsx'
 import StartScreen from './components/StartScreen.jsx'
 import { playDestroySound, playEffectSound } from './utils/sound.js'
 
-function App() {
+export default function App() {
   const [inGame, setInGame] = useState(false)
   const [state, setState] = useState(() => {
     const s = createGameState()
@@ -49,12 +49,22 @@ function App() {
   const [testMode, setTestMode] = useState(false)
   const nextConnectivityChoiceRef = useRef(null)
   const destroyTimeoutRef = useRef(null)
+  const aiAttackDestroyedRef = useRef(null)
+  const aiPlaceTimeoutRef = useRef(null)
+  const aiLevel2ActionTimeoutRef = useRef(null)
+  const aiLevel2ContinueRef = useRef(false)
+  const aiLevel2AttackChoiceRef = useRef(null)
+  const aiBlueFlashRef = useRef(null)
   const whitePlaceConnectivityRef = useRef(null)
   const whitePlacePendingInUpdaterRef = useRef(null)
+  const lastSinglePlaceResultRef = useRef(null)
   const [whitePlaceConnectivityTrigger, setWhitePlaceConnectivityTrigger] = useState(0)
+  const [placeCountTick, setPlaceCountTick] = useState(0)
 
+  // 本回合已放置总数（黑/红/蓝/绿/黄/紫/白/灰合计），不得超过 turnPlaceLimit
+  const placePhasePlaced = placementCountThisTurn(state)
   const maxBatch = state.phase === PHASE_PLACE
-    ? Math.min(pool(state, state.currentPlayer).black ?? 0, state.turnPlaceLimit - state.turnPlacedCount)
+    ? Math.min(pool(state, state.currentPlayer).black ?? 0, Math.max(0, (state.turnPlaceLimit ?? 0) - placePhasePlaced))
     : 0
   useEffect(() => {
     if (batchMode && maxBatch >= 0 && batchCount > maxBatch) {
@@ -75,6 +85,9 @@ function App() {
       setEffectPendingAtom(null)
       setConnectivityChoice(null)
       setPendingAction(null)
+      if (state.currentPlayer === 0 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2')) {
+        setAttackMessage('AI 已结束回合，轮到你了')
+      }
     }
     const leftPlacePhase = prev === PHASE_PLACE && state.phase !== PHASE_PLACE
     if (leftPlacePhase) {
@@ -101,35 +114,17 @@ function App() {
     setPendingAction('white_place')
   }, [whitePlaceConnectivityTrigger, state.phase])
 
-  // AI 对战模式：轮到 P1（AI）时自动执行排布与进攻
-  useEffect(() => {
-    if (!inGame || state.currentPlayer !== 1 || state.config?.gameMode !== 'ai_level1') return
-    const delay = 400
-    if (state.phase === PHASE_PLACE) {
-      const t = setTimeout(() => {
-        setState((prev) => {
-          runAIPlace(prev)
-          return { ...prev }
-        })
-      }, delay)
-      return () => clearTimeout(t)
-    }
-    if (state.phase === PHASE_ACTION) {
-      const t = setTimeout(() => {
-        setState((prev) => {
-          runAIAction(prev)
-          return { ...prev }
-        })
-      }, delay)
-      return () => clearTimeout(t)
-    }
-  }, [inGame, state.currentPlayer, state.phase, state.config?.gameMode])
-
   // 仅在「某格黑原子数目下降且产生多个不连通子集」时弹窗（由白湮灭黑或进攻/红效果触发）
   const updateState = useCallback((updater) => {
     setState((prev) => {
-      const next = { ...prev }
+      // 复制 placementHistory，避免 React 严格模式双重调用时共享数组被重复 push
+      const next = { ...prev, placementHistory: [...(prev.placementHistory ?? [])] }
       if (typeof updater === 'function') updater(next)
+      // 以 placementHistory 为唯一来源同步本回合排布数（所有颜色合计），保证撤回与上限一致
+      const placed = (next.placementHistory ?? []).length
+      next.turnPlacedCount = Math.min(next.turnPlaceLimit ?? 0, placed)
+      // 强制新数组引用，确保 React 检测到 state 变化、HUD「排布·已放」能正确更新
+      next.placementHistory = [...(next.placementHistory ?? [])]
       return next
     })
   }, [])
@@ -159,6 +154,151 @@ function App() {
     setEffectFlashAtom({ player, cellIndex, r, c })
     setTimeout(() => setEffectFlashAtom(null), 320)
   }, [])
+
+  // AI 对战模式：轮到 P1（AI）时自动执行排布与进攻（分步显示排布、高亮攻击目标、破坏动画）。必须在 resetAttackState、triggerDestroyAnimation、triggerEffectFlash 之后定义。
+  // 排布阶段用 ref 驱动链式 timeout，避免依赖 effect 重跑导致超时被清理或漏调度。
+  useEffect(() => {
+    const isAI = state.currentPlayer === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2')
+    if (!inGame || !isAI) return
+    const speedMult = Math.max(0.25, Math.min(4, Number(state.config?.aiSpeedMultiplier) || 1))
+    const placeStepDelay = Math.round(400 * speedMult)
+    const attackHighlightMs = Math.round(750 * speedMult)
+    const attackThenNextDelay = Math.round((400 + 380) * speedMult)
+    const level2FirstActionDelay = Math.round(500 * speedMult)
+    const isLevel2 = state.config?.gameMode === 'ai_level2'
+
+    if (state.phase === PHASE_PLACE) {
+      const runStep = isLevel2 ? runAIPlaceStepLevel2 : runAIPlaceStep
+      const scheduleNextPlaceStep = () => {
+        aiPlaceTimeoutRef.current = setTimeout(() => {
+          setState((prev) => {
+            if (prev.currentPlayer !== 1 || prev.phase !== PHASE_PLACE) return prev
+            const done = runStep(prev).done
+            if (!done) scheduleNextPlaceStep()
+            return { ...prev }
+          })
+        }, placeStepDelay)
+      }
+      scheduleNextPlaceStep()
+      return () => {
+        if (aiPlaceTimeoutRef.current) {
+          clearTimeout(aiPlaceTimeoutRef.current)
+          aiPlaceTimeoutRef.current = null
+        }
+      }
+    }
+
+    if (state.phase === PHASE_ACTION && !isLevel2) {
+      const options = getAIAttackOptions(state)
+      const hasOptions = options.length > 0
+      if (hasOptions) {
+        const [myCi, enCi] = options[Math.floor(Math.random() * options.length)]
+        setAttackMyCell([1, myCi])
+        setAttackEnemyCell([0, enCi])
+        setActionSubstate('attack_confirm')
+        const t = setTimeout(() => {
+          setState((prev) => {
+            if (prev.currentPlayer !== 1 || prev.phase !== PHASE_ACTION) return prev
+            const ret = runOneAIAttack(prev, [myCi, enCi])
+            aiAttackDestroyedRef.current = ret.destroyedAtoms
+            return { ...prev }
+          })
+          setTimeout(() => {
+            resetAttackState()
+            if (aiAttackDestroyedRef.current?.length) triggerDestroyAnimation(aiAttackDestroyedRef.current)
+            aiAttackDestroyedRef.current = null
+          }, 0)
+        }, attackHighlightMs)
+        return () => clearTimeout(t)
+      }
+      resetAttackState()
+      const t = setTimeout(() => {
+        setState((prev) => {
+          if (prev.currentPlayer !== 1 || prev.phase !== PHASE_ACTION) return prev
+          runAIEndTurn(prev)
+          return { ...prev, currentPlayer: 0, phase: PHASE_PLACE }
+        })
+      }, attackThenNextDelay)
+      return () => clearTimeout(t)
+    }
+
+    if (state.phase === PHASE_ACTION && isLevel2) {
+      const runNextLevel2Action = () => {
+        aiLevel2ContinueRef.current = false
+        setState((prev) => {
+          if (prev.currentPlayer !== 1 || prev.phase !== PHASE_ACTION) return prev
+          const redRet = runAIRedEffect(prev)
+          if (redRet.executed) {
+            aiLevel2ContinueRef.current = true
+            aiAttackDestroyedRef.current = redRet.destroyedAtoms ?? []
+            return { ...prev }
+          }
+          const blueOptsBefore = prev.cells[1].flatMap((cell, ci) =>
+            cell.allAtoms().filter(([, col]) => col === 'blue').map(([[r, c]]) => ({ ci, r, c }))
+          )
+          const blueRet = runAIBlueEffect(prev)
+          if (blueRet.executed && blueOptsBefore.length > 0) {
+            aiLevel2ContinueRef.current = true
+            const o = blueOptsBefore[0]
+            aiBlueFlashRef.current = { player: 1, cellIndex: o.ci, r: o.r, c: o.c }
+            return { ...prev }
+          }
+          aiBlueFlashRef.current = null
+          const attackOpts = getAIAttackOptions(prev)
+          if (attackOpts.length > 0) {
+            const [myCi, enCi] = attackOpts[Math.floor(Math.random() * attackOpts.length)]
+            aiLevel2ContinueRef.current = true
+            aiLevel2AttackChoiceRef.current = [myCi, enCi]
+            return { ...prev }
+          }
+          runAIEndTurn(prev)
+          return { ...prev, currentPlayer: 0, phase: PHASE_PLACE }
+        })
+        setTimeout(() => {
+          resetAttackState()
+          if (aiAttackDestroyedRef.current?.length) triggerDestroyAnimation(aiAttackDestroyedRef.current)
+          aiAttackDestroyedRef.current = null
+          if (aiBlueFlashRef.current) {
+            const { player, cellIndex, r, c } = aiBlueFlashRef.current
+            triggerEffectFlash(player, cellIndex, r, c)
+            aiBlueFlashRef.current = null
+          }
+          if (aiLevel2AttackChoiceRef.current) {
+            const [myCi, enCi] = aiLevel2AttackChoiceRef.current
+            aiLevel2AttackChoiceRef.current = null
+            setAttackMyCell([1, myCi])
+            setAttackEnemyCell([0, enCi])
+            setActionSubstate('attack_confirm')
+            aiLevel2ActionTimeoutRef.current = setTimeout(() => {
+              setState((prev) => {
+                if (prev.currentPlayer !== 1 || prev.phase !== PHASE_ACTION) return prev
+                const ret = runOneAIAttack(prev, [myCi, enCi])
+                aiAttackDestroyedRef.current = ret.destroyedAtoms ?? []
+                return { ...prev }
+              })
+              setTimeout(() => {
+                resetAttackState()
+                if (aiAttackDestroyedRef.current?.length) triggerDestroyAnimation(aiAttackDestroyedRef.current)
+                aiAttackDestroyedRef.current = null
+                aiLevel2ActionTimeoutRef.current = setTimeout(runNextLevel2Action, attackHighlightMs)
+              }, 0)
+            }, attackHighlightMs)
+            return
+          }
+          if (aiLevel2ContinueRef.current) {
+            aiLevel2ActionTimeoutRef.current = setTimeout(runNextLevel2Action, attackHighlightMs)
+          }
+        }, 0)
+      }
+      aiLevel2ActionTimeoutRef.current = setTimeout(runNextLevel2Action, level2FirstActionDelay)
+      return () => {
+        if (aiLevel2ActionTimeoutRef.current) {
+          clearTimeout(aiLevel2ActionTimeoutRef.current)
+          aiLevel2ActionTimeoutRef.current = null
+        }
+      }
+    }
+  }, [inGame, state.currentPlayer, state.phase, state.config?.gameMode, state.turnAttackUsed, resetAttackState, triggerDestroyAnimation, triggerEffectFlash])
 
   const handleEffectConfirm = useCallback(() => {
     if (!effectPendingAtom) return
@@ -248,14 +388,34 @@ function App() {
       setAttackMessage('请点击对方格子进攻')
     } else if (ret.substate === 'defender_choose_connected' && ret.connectivityChoice) {
       const cc = ret.connectivityChoice
-      setConnectivityChoice(cc)
-      setPendingAction(ret.pendingAction ?? null)
-      setAttackMessage(
-        cc.type === 'all'
-          ? '步骤(1)：该格不连通，请选择要保留的连通子集'
-          : '步骤(2)：多个黑连通子集，请选择要保留的一个'
-      )
-      updateState((s) => { s.currentPlayer = cc.defender })
+      if (cc.defender === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2')) {
+        updateState((s) => {
+          const cell = s.cells[cc.defender][cc.cellIndex]
+          const blackPoints = cell.blackPoints()
+          const idx = cc.components
+            .map((comp) => comp.filter((k) => blackPoints.has(k)).length)
+            .reduce((best, count, i) => (count > best.count ? { idx: i, count } : best), { idx: 0, count: -1 }).idx
+          applyConnectivityChoice(cell, cc.type, cc.components[idx])
+          s.turnAttackUsed++
+          clearCellsWithNoBlack(s, cc.defender)
+          s.currentPlayer = 0
+          s.attackedCellsThisTurn = s.attackedCellsThisTurn ?? []
+          if (attackMyCell) s.attackedCellsThisTurn.push([attackMyCell[0], attackMyCell[1]])
+          s.attackedEnemyCellIndicesThisTurn = s.attackedEnemyCellIndicesThisTurn ?? []
+          s.attackedEnemyCellIndicesThisTurn.push(cc.cellIndex)
+        })
+        resetAttackState()
+        setAttackMessage('进攻完成（AI 格已自动保留黑原子最多的连通子集）')
+      } else {
+        setConnectivityChoice(cc)
+        setPendingAction(ret.pendingAction ?? null)
+        setAttackMessage(
+          cc.type === 'all'
+            ? '步骤(1)：该格不连通，请选择要保留的连通子集'
+            : '步骤(2)：多个黑连通子集，请选择要保留的一个'
+        )
+        updateState((s) => { s.currentPlayer = cc.defender })
+      }
     }
   }, [state, attackMyCell, attackEnemyCell, updateState, resetAttackState, triggerDestroyAnimation])
 
@@ -360,14 +520,28 @@ function App() {
             if (result && typeof result === 'object' && result.ok) {
               if (result.connectivityChoice) {
                 const cc = result.connectivityChoice
-                setConnectivityChoice(cc)
-                setPendingAction('red_effect')
-                setAttackMessage(
-                  cc.type === 'all'
-                    ? '步骤(1)：该格不连通，请选择要保留的连通子集'
-                    : '步骤(2)：多个黑连通子集，请选择要保留的一个'
-                )
-                updateState((s) => { s.currentPlayer = cc.defender })
+                if (cc.defender === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2')) {
+                  updateState((s) => {
+                    const cell = s.cells[cc.defender][cc.cellIndex]
+                    const blackPoints = cell.blackPoints()
+                    const idx = cc.components
+                      .map((comp) => comp.filter((k) => blackPoints.has(k)).length)
+                      .reduce((best, count, i) => (count > best.count ? { idx: i, count } : best), { idx: 0, count: -1 }).idx
+                    applyConnectivityChoice(cell, cc.type, cc.components[idx])
+                    s.redEffectTargetCellIndicesThisTurn = s.redEffectTargetCellIndicesThisTurn ?? []
+                    s.redEffectTargetCellIndicesThisTurn.push(cc.cellIndex)
+                  })
+                  setAttackMessage('红效果：已随机破坏对方黑原子（AI 格已自动保留黑原子最多的连通子集）')
+                } else {
+                  setConnectivityChoice(cc)
+                  setPendingAction('red_effect')
+                  setAttackMessage(
+                    cc.type === 'all'
+                      ? '步骤(1)：该格不连通，请选择要保留的连通子集'
+                      : '步骤(2)：多个黑连通子集，请选择要保留的一个'
+                  )
+                  updateState((s) => { s.currentPlayer = cc.defender })
+                }
               } else {
                 updateState((s) => {
                   s.redEffectTargetCellIndicesThisTurn = s.redEffectTargetCellIndicesThisTurn ?? []
@@ -466,24 +640,33 @@ function App() {
 
       if (state.phase !== PHASE_PLACE) return
       if (state.currentPlayer !== player && selectedColor !== 'white' && selectedColor !== 'gray') return
-      if (state.turnPlacedCount >= state.turnPlaceLimit) {
-        setAttackMessage('本回合放置数已达上限（所有颜色合计）')
+      const placedTotal = placementCountThisTurn(state)
+      const atPlaceLimit = placedTotal >= (state.turnPlaceLimit ?? 0)
+      if (atPlaceLimit) {
+        setAttackMessage('本回合放置数已达上限，不能再放置任何原子')
         return
       }
-      if (batchMode && selectedColor !== 'white') {
+      if (batchMode) {
         const n = Math.min(Math.max(0, Math.floor(batchCount)), maxBatch)
         if (n <= 0) return
         updateState((s) => {
-          const [ok, msg, placements] = batchPlaceOnCell(s, cellIndex, n, viewCenter)
+          const placed = placementCountThisTurn(s)
+          const remaining = (s.turnPlaceLimit ?? 0) - placed
+          if (remaining <= 0) return
+          const nCapped = Math.min(n, remaining)
+          const [ok, msg, placements] = batchPlaceOnCell(s, cellIndex, nCapped, viewCenter)
           if (!ok || !placements?.length) {
             if (!ok) console.warn(msg)
             return
           }
           const player = s.currentPlayer
-          s.turnPlacedCount = s.turnPlacedCount + placements.length
-          // 批量黑原子每个都计入「排布 · 已放」，与单次放置（任意颜色）共用同一上限
+          const slotLeft = (s.turnPlaceLimit ?? 0) - placed
+          const allowed = Math.min(placements.length, slotLeft)
+          if (allowed <= 0) return
+          const used = placements.slice(0, allowed)
+          // 计数统一由 placementHistory.length 提供，见 updateState 内同步
           s.pools = s.pools.map((p, i) =>
-            i === player ? { ...p, [ATOM_BLACK]: (p[ATOM_BLACK] ?? 0) - placements.length } : p
+            i === player ? { ...p, [ATOM_BLACK]: (p[ATOM_BLACK] ?? 0) - used.length } : p
           )
           const cell = s.cells[player][cellIndex]
           const gridConfig = {
@@ -494,47 +677,87 @@ function App() {
             hexRadius: cell.grid.hexRadius,
           }
           const clonedCell = Cell.fromJSON(cell.toJSON(), gridConfig)
-          for (const [r, c] of placements) clonedCell.place(r, c, ATOM_BLACK)
+          for (const [r, c] of used) clonedCell.place(r, c, ATOM_BLACK)
           s.cells = s.cells.map((row, pi) =>
             row.map((c, ci) => (pi === player && ci === cellIndex ? clonedCell : c))
           )
           s.placementHistory = [...(s.placementHistory ?? [])]
-          for (const [r, c] of placements) {
+          for (const [r, c] of used) {
             s.placementHistory.push({ player, cellIndex, r, c, color: ATOM_BLACK })
           }
         })
       } else if (selectedColor && r != null && c != null) {
-        let placeResult
+        // 单次放置（非 batch）：不可变更新——不突变 prev，返回全新 next，确保 React 收到新引用、HUD 会更新
         const targetPlayer = selectedColor === 'white' || selectedColor === 'gray' ? player : state.currentPlayer
-        updateState((s) => {
-          if (s.turnPlacedCount >= s.turnPlaceLimit) return
-          const result = applyPlace(s, cellIndex, r, c, selectedColor, (selectedColor === 'white' || selectedColor === 'gray') ? { targetPlayer } : undefined)
-          if (result !== false) placeResult = result
-          if (selectedColor === 'white' && result && typeof result === 'object' && result.connectivityChoice) {
-            const choice = result.connectivityChoice
-            const hasMulti = Array.isArray(choice.components) && choice.components.length > 0
-            if (hasMulti) {
-              if (result.defender !== s.currentPlayer) s.currentPlayer = result.defender
-              const payload = {
-                defender: result.defender,
-                cellIndex: result.cellIndex,
-                type: choice.type,
-                components: choice.components,
-                placer: s.currentPlayer,
-              }
-              s.pendingConnectivityChoice = payload
-              s.pendingConnectivityAction = 'white_place'
-              whitePlacePendingInUpdaterRef.current = payload
+        lastSinglePlaceResultRef.current = null
+        flushSync(() => {
+          setState((prev) => {
+            const [ok] = validatePlace(prev, cellIndex, r, c, selectedColor, (selectedColor === 'white' || selectedColor === 'gray') ? { targetPlayer } : undefined)
+            if (!ok) return prev
+            const cell = prev.cells[targetPlayer][cellIndex]
+            const gridConfig = { rows: cell.grid.rows, cols: cell.grid.cols, centerR: cell.grid.centerR, centerC: cell.grid.centerC, hexRadius: cell.grid.hexRadius }
+            const clonedCell = Cell.fromJSON(cell.toJSON(), gridConfig)
+            let result
+            if (selectedColor === 'white') {
+              clonedCell.remove(r, c)
+              result = { applied: true, connectivityChoice: getConnectivityChoice(clonedCell), defender: targetPlayer, cellIndex }
+            } else {
+              clonedCell.place(r, c, selectedColor)
+              result = true
             }
-          } else if (selectedColor === 'white' && result === false && whitePlacePendingInUpdaterRef.current) {
-            s.pendingConnectivityChoice = whitePlacePendingInUpdaterRef.current
-            s.pendingConnectivityAction = 'white_place'
-          }
+            lastSinglePlaceResultRef.current = result
+            const newPools = prev.pools.map((p, i) =>
+              i === prev.currentPlayer ? { ...p, [selectedColor]: (p[selectedColor] ?? 0) - 1 } : p
+            )
+            const newCells = prev.cells.map((row, pi) =>
+              pi === targetPlayer ? row.map((c, ci) => (ci === cellIndex ? clonedCell : c)) : row
+            )
+            const newEntry = { player: prev.currentPlayer, targetPlayer, cellIndex, r, c, color: selectedColor }
+            const newHistory = [...(prev.placementHistory ?? []), newEntry]
+            const next = {
+              ...prev,
+              cells: newCells,
+              pools: newPools,
+              placementHistory: newHistory,
+              turnPlacedCount: newHistory.length,
+            }
+            if (selectedColor === 'white' && result && typeof result === 'object' && result.connectivityChoice) {
+              const choice = result.connectivityChoice
+              const hasMulti = Array.isArray(choice.components) && choice.components.length > 0
+              if (hasMulti && result.defender === 1 && (prev.config?.gameMode === 'ai_level1' || prev.config?.gameMode === 'ai_level2')) {
+                // AI 方被白原子湮灭产生多连通子集：在构造 next 时直接保留黑原子最多的子集，不弹窗、不交回合给 AI
+                const cellToApply = newCells[result.defender][result.cellIndex]
+                const blackPoints = cellToApply.blackPoints()
+                const idx = choice.components
+                  .map((comp) => comp.filter((k) => blackPoints.has(k)).length)
+                  .reduce((best, count, i) => (count > best.count ? { idx: i, count } : best), { idx: 0, count: -1 }).idx
+                applyConnectivityChoice(cellToApply, choice.type, choice.components[idx])
+              } else if (hasMulti) {
+                next.currentPlayer = result.defender !== prev.currentPlayer ? result.defender : prev.currentPlayer
+                next.pendingConnectivityChoice = {
+                  defender: result.defender,
+                  cellIndex: result.cellIndex,
+                  type: choice.type,
+                  components: choice.components,
+                  placer: prev.currentPlayer,
+                }
+                next.pendingConnectivityAction = 'white_place'
+                whitePlacePendingInUpdaterRef.current = next.pendingConnectivityChoice
+              }
+            } else if (selectedColor === 'white' && (!result || result === false) && whitePlacePendingInUpdaterRef.current) {
+              next.pendingConnectivityChoice = whitePlacePendingInUpdaterRef.current
+              next.pendingConnectivityAction = 'white_place'
+            }
+            return next
+          })
+          setPlaceCountTick((t) => t + 1)
         })
+        const placeResult = lastSinglePlaceResultRef.current
         if (selectedColor === 'white' && placeResult && typeof placeResult === 'object') {
           const choice = placeResult.connectivityChoice
           const hasComponents = choice && Array.isArray(choice.components) && choice.components.length > 0
-          if (hasComponents) {
+          // AI 方多连通子集已在 setState 内自动保留黑最多的子集，不弹窗
+          if (hasComponents && !(placeResult.defender === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2'))) {
             whitePlaceConnectivityRef.current = {
               defender: placeResult.defender,
               cellIndex: placeResult.cellIndex,
@@ -749,6 +972,8 @@ function App() {
       })()}
       <HUD
         state={state}
+        placementCount={placementCountThisTurn(state)}
+        placeCountTick={placeCountTick}
         setState={setState}
         updateState={updateState}
         actionSubstate={actionSubstate}
@@ -818,5 +1043,3 @@ function PlayerBar({ state, player }) {
     </div>
   )
 }
-
-export default App

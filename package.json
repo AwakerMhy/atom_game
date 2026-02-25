@@ -1,6 +1,6 @@
 {
   "name": "atom-game",
-  "version": "1.0.0",
+  "version": "1.14.0",
   "private": true,
   "scripts": {
     "build": "npm run build --prefix web",

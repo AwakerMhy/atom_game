@@ -273,6 +273,10 @@ export function applyEffectRedRandom(state, attacker, cellIndex, r, c, targetDef
         ? Array.from({ length: defCells.length }, (_, i) => i)
         : []
   cell.remove(r, c)
+  const purpleNeighbors = cell.purpleNeighborPositions(r, c)
+  for (const [nr, nc] of purpleNeighbors) {
+    cell.remove(nr, nc)
+  }
   const affectedCells = new Set()
   const destroyedAtoms = []
   for (const ci of cellIndices) {

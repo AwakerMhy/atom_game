@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { COLORS } from '../game/config.js'
-import { RULES_OVERLAY_LINES } from './HUD.jsx'
+import { RULES_OVERLAY_LINES } from './rulesOverlay.js'
 
 const LABELS = { black: '黑', red: '红', blue: '蓝', green: '绿', yellow: '黄', purple: '紫', white: '白', gray: '灰' }
 const BADGES = { black: 'bg-black', red: 'bg-red-700', blue: 'bg-blue-700', green: 'bg-green-700', yellow: 'bg-amber-600', purple: 'bg-violet-600', white: 'bg-gray-200', gray: 'bg-gray-500' }
@@ -9,13 +9,20 @@ const DEFAULT_WEIGHTS = [3, 1, 1, 1, 1, 0, 0, 0]
 
 export default function StartScreen({ onStart, defaultConfig = {} }) {
   const [showRules, setShowRules] = useState(false)
+  const [showAILevelSelect, setShowAILevelSelect] = useState(false)
   const [gameMode, setGameMode] = useState(defaultConfig.gameMode ?? 'normal')
+  const [aiSpeedMultiplier, setAiSpeedMultiplier] = useState(defaultConfig.aiSpeedMultiplier ?? 1)
   const [baseDrawCount, setBaseDrawCount] = useState(defaultConfig.baseDrawCount ?? 10)
   const [basePlaceLimit, setBasePlaceLimit] = useState(defaultConfig.basePlaceLimit ?? 10)
   const [initialHp, setInitialHp] = useState(defaultConfig.initialHp ?? 20)
   const [cellCount, setCellCount] = useState(defaultConfig.cellCount ?? 3)
-  const [aiBlackPerTurn, setAiBlackPerTurn] = useState(defaultConfig.aiBlackPerTurn ?? 5)
-  const [aiPlaceLimit, setAiPlaceLimit] = useState(defaultConfig.aiPlaceLimit ?? 5)
+  const [aiBlackPerTurn, setAiBlackPerTurn] = useState(defaultConfig.aiBlackPerTurn ?? 8)
+  const [aiPlaceLimit, setAiPlaceLimit] = useState(defaultConfig.aiPlaceLimit ?? 15)
+  const [ai2DrawCount, setAi2DrawCount] = useState(defaultConfig.ai2DrawCount ?? 10)
+  const [ai2PlaceLimit, setAi2PlaceLimit] = useState(defaultConfig.ai2PlaceLimit ?? 12)
+  const [ai2WeightBlack, setAi2WeightBlack] = useState(defaultConfig.ai2WeightBlack ?? 5)
+  const [ai2WeightRed, setAi2WeightRed] = useState(defaultConfig.ai2WeightRed ?? 2)
+  const [ai2WeightBlue, setAi2WeightBlue] = useState(defaultConfig.ai2WeightBlue ?? 2)
   const [drawWeights, setDrawWeights] = useState(
     () => {
       const w = defaultConfig.drawWeights
@@ -49,6 +56,22 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
       config.aiBlackPerTurn = Math.max(0, Math.min(30, aiBlackPerTurn))
       config.aiPlaceLimit = Math.max(0, Math.min(30, aiPlaceLimit))
     }
+    if (gameMode === 'ai_level2') {
+      config.ai2DrawCount = Math.max(1, Math.min(20, ai2DrawCount))
+      config.ai2PlaceLimit = Math.max(1, Math.min(25, ai2PlaceLimit))
+      config.ai2WeightBlack = Math.max(0, Math.min(10, ai2WeightBlack))
+      config.ai2WeightRed = Math.max(0, Math.min(10, ai2WeightRed))
+      config.ai2WeightBlue = Math.max(0, Math.min(10, ai2WeightBlue))
+      config.ai2DrawWeights = [
+        Math.max(0, Math.min(10, ai2WeightBlack)),
+        Math.max(0, Math.min(10, ai2WeightRed)),
+        Math.max(0, Math.min(10, ai2WeightBlue)),
+        0, 0, 0, 0, 0,
+      ]
+    }
+    if (gameMode === 'ai_level1' || gameMode === 'ai_level2') {
+      config.aiSpeedMultiplier = Math.max(0.25, Math.min(4, Number(aiSpeedMultiplier) || 1))
+    }
     onStart(config)
   }
 
@@ -79,6 +102,49 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
     )
   }
 
+  if (showAILevelSelect) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/95 backdrop-blur-sm">
+        <div className="relative w-full max-w-md rounded-2xl border border-gray-600 bg-gray-800/95 p-6 shadow-2xl">
+          <div className="absolute top-4 right-4">
+            <button
+              type="button"
+              onClick={() => setShowRules(true)}
+              className="px-3 py-1.5 rounded text-sm bg-gray-600 hover:bg-gray-500 text-gray-200"
+            >
+              规则
+            </button>
+          </div>
+          <h1 className="mb-2 text-center text-2xl font-bold text-amber-400">AI 对战</h1>
+          <p className="mb-6 text-center text-sm text-gray-400">选择关卡</p>
+          <div className="flex flex-col gap-3">
+            <button
+              type="button"
+              onClick={() => { setGameMode('ai_level1'); setShowAILevelSelect(false) }}
+              className="px-6 py-3 rounded-lg text-base font-medium bg-gray-600 hover:bg-amber-600 text-white transition"
+            >
+              第一关（AI 仅使用黑原子）
+            </button>
+            <button
+              type="button"
+              onClick={() => { setGameMode('ai_level2'); setShowAILevelSelect(false) }}
+              className="px-6 py-3 rounded-lg text-base font-medium bg-gray-600 hover:bg-amber-600 text-white transition"
+            >
+              第二关（AI 使用黑/红/蓝，可发动红/蓝效果）
+            </button>
+            <button
+              type="button"
+              onClick={() => { setShowAILevelSelect(false); setGameMode('normal') }}
+              className="px-6 py-2 rounded-lg text-sm font-medium bg-gray-700 hover:bg-gray-600 text-gray-300 mt-2"
+            >
+              返回
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/95 backdrop-blur-sm">
       <div className="relative w-full max-w-2xl rounded-2xl border border-gray-600 bg-gray-800/95 p-6 shadow-2xl">
@@ -94,7 +160,7 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
         <h1 className="mb-6 text-center text-2xl font-bold text-amber-400">原子对战</h1>
         <p className="mb-6 text-center text-sm text-gray-400">配置本局规则后点击开始</p>
 
-        <div className="mb-6 flex gap-2 justify-center">
+        <div className="mb-6 flex gap-2 justify-center flex-wrap">
           <button
             type="button"
             onClick={() => setGameMode('normal')}
@@ -102,13 +168,23 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
           >
             主游戏
           </button>
-          <button
-            type="button"
-            onClick={() => setGameMode('ai_level1')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium ${gameMode === 'ai_level1' ? 'bg-amber-600 text-white' : 'bg-gray-600 text-gray-300 hover:bg-gray-500'}`}
-          >
-            AI 对战
-          </button>
+          {gameMode === 'normal' ? (
+            <button
+              type="button"
+              onClick={() => setShowAILevelSelect(true)}
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-600 text-gray-300 hover:bg-gray-500"
+            >
+              进入 AI 对战
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowAILevelSelect(true)}
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-amber-600 text-white"
+            >
+              返回选择关卡
+            </button>
+          )}
         </div>
 
         {gameMode === 'ai_level1' && (
@@ -147,9 +223,104 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
           </div>
         )}
 
+        {gameMode === 'ai_level2' && (
+          <div className="mb-6 p-4 rounded-lg bg-gray-700/50 border border-gray-600">
+            <p className="text-sm font-medium text-amber-300 mb-3">第二关（AI 使用黑/红/蓝，可发动红/蓝效果）</p>
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-400">AI 每回合获得原子数</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={1}
+                    max={20}
+                    value={ai2DrawCount}
+                    onChange={(e) => setAi2DrawCount(Number(e.target.value))}
+                    className="flex-1"
+                  />
+                  <span className="w-8 text-right font-mono text-amber-400 text-sm">{ai2DrawCount}</span>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-400">AI 每回合可排布原子数</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={1}
+                    max={25}
+                    value={ai2PlaceLimit}
+                    onChange={(e) => setAi2PlaceLimit(Number(e.target.value))}
+                    className="flex-1"
+                  />
+                  <span className="w-8 text-right font-mono text-amber-400 text-sm">{ai2PlaceLimit}</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-400">黑权重</label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={10}
+                    value={ai2WeightBlack}
+                    onChange={(e) => setAi2WeightBlack(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <span className="font-mono text-amber-400 text-sm">{ai2WeightBlack}</span>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-400">红权重</label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={10}
+                    value={ai2WeightRed}
+                    onChange={(e) => setAi2WeightRed(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <span className="font-mono text-amber-400 text-sm">{ai2WeightRed}</span>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-400">蓝权重</label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={10}
+                    value={ai2WeightBlue}
+                    onChange={(e) => setAi2WeightBlue(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <span className="font-mono text-amber-400 text-sm">{ai2WeightBlue}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(gameMode === 'ai_level1' || gameMode === 'ai_level2') && (
+          <div className="mb-6 p-4 rounded-lg bg-gray-700/50 border border-gray-600">
+            <p className="text-sm font-medium text-amber-300 mb-3">AI 操作展示速度</p>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-400">展示时间倍数（1=正常，2=每步时间×2）</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0.25}
+                  max={4}
+                  step={0.25}
+                  value={aiSpeedMultiplier}
+                  onChange={(e) => setAiSpeedMultiplier(Number(e.target.value))}
+                  className="flex-1"
+                />
+                <span className="w-12 text-right font-mono text-amber-400 text-sm">{Number(aiSpeedMultiplier) === Math.floor(aiSpeedMultiplier) ? aiSpeedMultiplier : aiSpeedMultiplier.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8">
           <div className="flex-1 space-y-5">
-            <p className="text-xs text-gray-500">{gameMode === 'ai_level1' ? '玩家（P0）配置' : '双方配置'}</p>
+            <p className="text-xs text-gray-500">{gameMode === 'ai_level1' || gameMode === 'ai_level2' ? '玩家（P0）配置' : '双方配置'}</p>
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-300">每局获得原子数</label>
               <div className="flex items-center gap-3">

@@ -1,71 +1,15 @@
 import { useState } from 'react'
-import { winner } from '../game/state.js'
+import { winner, placementCountThisTurn } from '../game/state.js'
 import { endPlacePhase, endTurn, startTurnDefault, undoLastPlacement, canUndoPlacement } from '../game/turn.js'
 import { applyGreenEndOfTurn } from '../game/combat.js'
 import { PHASE_CONFIRM, PHASE_PLACE, PHASE_ACTION } from '../game/config.js'
-
-export const RULES_OVERLAY_LINES = [
-  "【规则摘要】 点击「规则」或下方关闭按钮关闭",
-  "",
-  "一、目标",
-  "将对方生命降至 0。每方 3 格，格点可放置黑/红/蓝/绿/黄/紫/白/灰原子。",
-  "",
-  "二、游戏阶段",
-  "阶段1：排布。拖放原子到己方格，点「结束排布」。",
-  "阶段2：效果。点击己方红/蓝/绿/黄/灰原子发动效果（紫原子无点击效果）。",
-  "阶段3：进攻。点击己方格子再点对方格进攻，随后「结束回合」。",
-  "",
-  "三、场地与进攻",
-  "· 三角形网格边长为 1。",
-  "· 每回合，己方有黑原子的格子各可发动一次进攻。",
-  "· 攻击力 = 黑原子竖向跨度 ÷ √3/2；防御力 = 黑原子横向跨度。",
-  "· 攻 > 防：可破坏一个黑原子，造成 1 点伤害。",
-  "· 对方格子无黑原子：直接造成攻击力数值的伤害。",
-  "",
-  "四、原子排布",
-  "黑原子只能随机排布；红/蓝/绿/黄/紫必须至少与一个已有的黑原子相邻才能放置。",
-  "白：排布阶段将白原子放在任意一方任意格子的一个有原子格点上时，二者湮灭（破坏该格点上的任意颜色原子），可消除己方或对方格子；随后按破坏后连通规则由该格所属玩家选择保留子集。",
-  "灰：排布阶段可放置到对方格子中黑原子的邻居格点上；该格子内其他类型原子的持续效果均无效。",
-  "非黑原子的效果取决于其所连接的黑原子数目。紫原子的作用是扩展具有特殊效果原子（红/蓝/绿/黄）的黑邻跳数：与紫相邻时，有效黑邻按「1 + 相邻紫个数」跳计算；多紫连接同一原子时跳数叠加。",
-  "",
-  "五、原子持续性效果",
-  "红：进攻时，己方格红原子（与紫相邻时用扩展黑邻跳数）可多破坏 x 个原子。",
-  "蓝：遭进攻时，己方格蓝原子（与紫相邻时用扩展黑邻跳数）可少破坏 x 个（最低为 0）。",
-  "绿：回合结束时，获得己方所有绿原子有效黑邻数之和的黑原子（与紫相邻时用扩展黑邻跳数）。",
-  "黄：持续效果中，对方若要进攻（或对其发动红效果）我方某格（该格有 x 个黄原子），须已进攻过（或对其发动过红原子的破坏效果）所有「黄原子数严格大于 x」的我方其他格子。与紫相邻时黄点击效果按扩展黑邻跳数计算。",
-  "紫：无持续性数值；其作用是扩展红/蓝/绿/黄的黑邻跳数（多紫可叠加）。",
-  "灰：所在格子内其他类型原子的持续效果均无效。",
-  "",
-  "六、原子点击效果",
-  "红：先选对方格子，再在该格内随机破坏 y 个黑原子（y = 该红原子有效黑邻数，与紫相邻时用扩展跳数）。",
-  "蓝：与该蓝有效黑邻（与紫相邻时用扩展跳数）下一回合内不可被破坏，期间蓝色高亮。",
-  "绿：该格点变为黑原子；与紫相邻时并在此格内「有效黑邻的空邻居」处放置黑原子。",
-  "黄：与该黄有效黑邻（与紫相邻时用扩展跳数）黄色高亮，下回合优先被选为破坏对象。",
-  "灰：其周围（灰色高亮圈出）其他类型原子的点击效果在下一回合内不能发动。",
-  "绿/蓝/黄发动点击效果时，与其相邻的紫原子一并消失。",
-  "紫：无点击效果。",
-  "",
-  "八、黑原子破坏规则（攻击与红效果）",
-  "进攻与红效果的破坏仅直接作用于黑原子，不直接破坏红/蓝/绿/黄/紫原子。",
-  "要破坏 x 个黑原子时：",
-  "· 若无黄高亮黑原子：从该格所有黑原子中无放回随机抽 x 个作为目标；",
-  "· 若有 y 个黄高亮黑原子且 x≥y：先确定这 y 个为目标，再从其余黑原子中随机抽 x-y 个；",
-  "· 若有 y 个黄高亮黑原子且 x<y：从这 y 个中随机抽 x 个作为目标。",
-  "选中的目标若被蓝保护则不实际破坏（蓝优先于黄）。",
-  "",
-  "九、破坏后连通规则",
-  "规定：每当某格的连通子集数目或黑连通子集数目发生变化，就按以下流程检查；若产生多个不连通子集则弹窗由该格所属方选择保留哪一个。",
-  "进攻、红效果、白原子湮灭、绿效果、黄效果等导致格子内原子变动时均按以下流程：",
-  "(1) 检查该格剩余原子是否连通，不连通则由该格所属方选择保留一个连通子集；",
-  "(2) 仅看黑原子是否连通，若存在多个黑连通子集则由该格所属方选一个保留，其余破坏；",
-  "(3) 自动清除所有不包含黑原子的连通子集。",
-]
-
+import { RULES_OVERLAY_LINES } from './rulesOverlay.js'
 
 export default function HUD({
   state,
   setState,
   updateState,
+  placeCountTick = 0,
   actionSubstate,
   attackMyCell,
   attackEnemyCell,
@@ -84,6 +28,8 @@ export default function HUD({
   const [showRules, setShowRules] = useState(false)
   const [showEndPlaceConfirm, setShowEndPlaceConfirm] = useState(false)
   const [showEndTurnConfirm, setShowEndTurnConfirm] = useState(false)
+  // 本回合已放置总数（黑/红/蓝/绿/黄/紫/白/灰合计），唯一来源为 placementHistory.length；placeCountTick 变化时强制重读
+  const placementCount = (state.placementHistory ?? []).length
   const cur = state.currentPlayer
   const w = winner(state)
 
@@ -180,11 +126,12 @@ export default function HUD({
       )}
     <div className="fixed right-0 top-24 bottom-20 w-28 flex flex-col gap-2 py-4 pr-2 pl-2 bg-gray-900/90 border-l border-gray-700 z-20">
       <p className="text-xs text-gray-400 px-1 pb-2 border-b border-gray-600">
-        {state.currentPlayer === 1 && state.config?.gameMode === 'ai_level1' &&
+        {state.currentPlayer === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2') &&
           (state.phase === PHASE_PLACE ? 'AI 回合 · 排布中…' : 'AI 回合 · 进攻中…')}
-        {!(state.currentPlayer === 1 && state.config?.gameMode === 'ai_level1') && state.phase === PHASE_PLACE &&
-          `排布 · 已放 ${Math.max(state.turnPlacedCount ?? 0, (state.placementHistory ?? []).length)}/${state.turnPlaceLimit}（所有颜色合计）`}
-        {!(state.currentPlayer === 1 && state.config?.gameMode === 'ai_level1') && state.phase === PHASE_ACTION &&
+        {!(state.currentPlayer === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2')) && state.phase === PHASE_PLACE && (
+          <span key={`place-${placeCountTick}`}>排布 · 已放 {Math.min(state.turnPlaceLimit ?? 0, placementCount)}/{state.turnPlaceLimit ?? 0}（所有颜色合计）</span>
+        )}
+        {!(state.currentPlayer === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2')) && state.phase === PHASE_ACTION &&
           (attackMessage || `动作 · 进攻 ${state.turnAttackUsed}/${state.turnAttackLimit}`)}
       </p>
       <button
@@ -193,7 +140,7 @@ export default function HUD({
       >
         规则
       </button>
-      {state.phase === PHASE_PLACE && (state.config?.gameMode !== 'ai_level1' || state.currentPlayer === 0) && (
+      {state.phase === PHASE_PLACE && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' ? state.currentPlayer === 0 : true) && (
         <>
           <button
             onClick={() => updateState((s) => undoLastPlacement(s))}
@@ -228,7 +175,7 @@ export default function HUD({
           ))}
         </>
       )}
-      {state.phase === PHASE_ACTION && !connectivityChoice && (state.config?.gameMode !== 'ai_level1' || state.currentPlayer === 0) && (
+      {state.phase === PHASE_ACTION && !connectivityChoice && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' ? state.currentPlayer === 0 : true) && (
         <>
           <button
             onClick={() => setShowEndTurnConfirm(true)}
@@ -244,7 +191,7 @@ export default function HUD({
               取消选择
             </button>
           )}
-          {actionSubstate === 'attack_confirm' && attackMyCell && attackEnemyCell && (
+          {actionSubstate === 'attack_confirm' && attackMyCell && attackEnemyCell && state.currentPlayer === 0 && (
             <>
               <span className="text-xs text-amber-400 px-1">确认进攻？</span>
               <button
@@ -260,6 +207,9 @@ export default function HUD({
                 取消
               </button>
             </>
+          )}
+          {actionSubstate === 'attack_confirm' && attackMyCell && attackEnemyCell && state.currentPlayer === 1 && (
+            <span className="text-xs text-amber-400 px-1">AI 进攻中…</span>
           )}
           {effectPendingAtom && (
             <>

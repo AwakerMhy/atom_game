@@ -16,15 +16,12 @@ import {
   PHASE_ACTION,
 } from './config.js'
 
-const GRID_ROWS = 100
-const GRID_COLS = 100
-const CENTER_R = 50
-const CENTER_C = 50
-const HEX_RADIUS = 15
+const GRID_ROWS = 24
+const GRID_COLS = 24
 
 function makeCells(count) {
   const n = Math.max(2, Math.min(6, count ?? 3))
-  return Array.from({ length: n }, () => new Cell(GRID_ROWS, GRID_COLS, CENTER_R, CENTER_C, HEX_RADIUS))
+  return Array.from({ length: n }, () => new Cell(GRID_ROWS, GRID_COLS, null, null, null))
 }
 
 export function createGameState(config = {}) {
@@ -36,8 +33,8 @@ export function createGameState(config = {}) {
     drawWeights: [3, 1, 1, 1, 1, 0, 0],
     initialHp: INITIAL_HP,
     cellCount: 3,
-    aiBlackPerTurn: 5,
-    aiPlaceLimit: 5,
+    aiBlackPerTurn: 8,
+    aiPlaceLimit: 15,
     ...config,
   }
   const base = [3, 1, 1, 1, 1, 0, 0, 0]
@@ -58,7 +55,7 @@ export function createGameState(config = {}) {
     basePlaceLimit: cfg.basePlaceLimit,
     drawWeights: weights,
     turnDrawCount: cfg.baseDrawCount,
-    turnPlaceLimit: cfg.basePlaceLimit,
+    turnPlaceLimit: cfg.basePlaceLimit, // 每回合可排布原子数上限（黑/红/蓝/绿/黄/紫/白/灰合计）
     turnAttackLimit: 1,
     turnPlacedCount: 0,
     turnAttackUsed: 0,
@@ -75,6 +72,11 @@ export function createGameState(config = {}) {
     graySilencedUntilTurn: {},
     placementHistory: [],
   }
+}
+
+/** 本回合已放置次数（黑/红/蓝/绿/黄/紫/白/灰合计），唯一来源为 placementHistory.length；不得超过 turnPlaceLimit */
+export function placementCountThisTurn(state) {
+  return (state.placementHistory ?? []).length
 }
 
 export function opponent(state, player) {

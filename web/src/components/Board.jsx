@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef, useCallback } from 'react'
+import { useMemo, useState, useRef, useCallback, useEffect } from 'react'
 import { pointToXy, neighbors, distanceBetween } from '../game/grid.js'
 import { pixelToGrid } from '../utils/hex.js'
 import { attackPower, defensePower } from '../game/combat.js'
@@ -11,8 +11,8 @@ const CELL_H = CELL_SIDE
 const GAP = 24
 const ROW_GAP = 48
 const HEX_R = 15
-const CENTER_R = 50
-const CENTER_C = 50
+const CENTER_R = 12
+const CENTER_C = 12
 const DIST_TOL = 1e-6
 
 const ATOM_COLORS = {
@@ -51,6 +51,7 @@ function CellView({
   onDragEnd,
   interactionMode,
   isAttackHighlight,
+  isAttackTargetHighlight = false,
   connectivityChoiceCell,
   destroyingAtoms = [],
   effectFlashAtom = null,
@@ -111,6 +112,21 @@ function CellView({
         }
         if (best) pt = best
       }
+    }
+    // 非批量模式下选颜色放置：点击未命中格点时用最近格点，确保能进入放置分支且计数增加
+    if (!pt && selectedColor) {
+      const gridPoints = cell.grid.allPoints()
+      let best = null
+      let bestD = Infinity
+      for (const [r, c] of gridPoints) {
+        const p = toPx(r, c, scale, ox, oy)
+        const d = (p.x - px) ** 2 + (p.y - py) ** 2
+        if (d < bestD) {
+          bestD = d
+          best = [r, c]
+        }
+      }
+      if (best) pt = best
     }
     const viewCenter = pixelToGrid(cx, cy, scale, ox, oy, cell.grid)
     onClick?.(player, cellIndex, pt?.[0] ?? null, pt?.[1] ?? null, viewCenter)
@@ -196,8 +212,8 @@ function CellView({
         width={w}
         height={h}
         fill="#f5ebd2"
-        stroke={isAttackHighlight ? '#c84646' : '#50463c'}
-        strokeWidth={isAttackHighlight ? 4 : 2}
+        stroke={isAttackHighlight ? '#c84646' : isAttackTargetHighlight ? '#e07830' : '#50463c'}
+        strokeWidth={isAttackHighlight || isAttackTargetHighlight ? 4 : 2}
       />
       <g clipPath={clipId ? `url(#${clipId})` : undefined}>
         {gridEdges.map(([[r1, c1], [r2, c2]], i) => {
@@ -410,6 +426,7 @@ function Board({
 
   const INFO_H = 44
   const numCells = state.cells[0]?.length ?? 3
+  const focus = state?.aiPlaceFocusCell
   const layout = useMemo(() => {
     const left = 24
     const top0 = 24
@@ -428,6 +445,19 @@ function Board({
     }))
     return [row0, row1]
   }, [numCells])
+
+  useEffect(() => {
+    if (!focus || focus.player == null || focus.cellIndex == null) return
+    const rect = layout[focus.player]?.[focus.cellIndex]
+    if (!rect) return
+    const denom = Math.max(3, Math.min(10, gridScaleDenom ?? 6))
+    const scale = Math.min(rect.w, rect.h) / denom
+    const center = pointToXy(CENTER_R, CENTER_C)
+    const pt = pointToXy(focus.r ?? CENTER_R, focus.c ?? CENTER_C)
+    const dx = (center.x - pt.x) * scale
+    const dy = (center.y - pt.y) * scale
+    setViewPan((prev) => ({ ...prev, [cellKey(focus.player, focus.cellIndex)]: { dx, dy } }))
+  }, [focus?.player, focus?.cellIndex, focus?.r, focus?.c, layout, gridScaleDenom])
 
   const LABEL_H = 44
   const width = numCells * CELL_W + Math.max(0, numCells - 1) * GAP + 48
@@ -505,6 +535,7 @@ function Board({
           onPan={handlePan}
           onDragEnd={handleDragEnd}
           isAttackHighlight={attackHighlightCell?.player === 1 && attackHighlightCell?.cellIndex === i}
+          isAttackTargetHighlight={attackEnemyCell != null && attackEnemyCell[0] === 1 && attackEnemyCell[1] === i}
           destroyingAtoms={destroyingAtoms.filter((d) => d.defender === 1 && d.cellIndex === i)}
           effectFlashAtom={effectFlashAtom}
           effectPendingAtom={effectPendingAtom}
@@ -534,6 +565,7 @@ function Board({
           onPan={handlePan}
           onDragEnd={handleDragEnd}
           isAttackHighlight={attackHighlightCell?.player === 0 && attackHighlightCell?.cellIndex === i}
+          isAttackTargetHighlight={attackEnemyCell != null && attackEnemyCell[0] === 0 && attackEnemyCell[1] === i}
           destroyingAtoms={destroyingAtoms.filter((d) => d.defender === 0 && d.cellIndex === i)}
           effectFlashAtom={effectFlashAtom}
           effectPendingAtom={effectPendingAtom}

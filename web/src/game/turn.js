@@ -14,7 +14,7 @@ import {
   ATOM_GRAY,
 } from './config.js'
 import { drawAtoms } from './draw.js'
-import { xForTurn } from './state.js'
+import { xForTurn, placementCountThisTurn } from './state.js'
 import { getConnectivityChoice } from './combat.js'
 
 export function applyPhase0Choice(state, choice) {
@@ -56,15 +56,36 @@ export function startTurnDefault(state) {
   const cfg = state.config ?? {}
   if (cfg.gameMode === 'ai_level1' && state.currentPlayer === 1) {
     state.turnDrawCount = 0
-    const add = Math.max(0, cfg.aiBlackPerTurn ?? 5)
+    const add = Math.max(0, cfg.aiBlackPerTurn ?? 8)
     state.pools[1][ATOM_BLACK] = (state.pools[1][ATOM_BLACK] ?? 0) + add
-    const limit = Math.max(0, cfg.aiPlaceLimit ?? 5)
-    state.turnPlaceLimit = Math.min(limit, state.pools[1][ATOM_BLACK] ?? 0)
+    // 尽可能放满：本回合可放置数 = 当前拥有的全部黑原子（不再用 aiPlaceLimit 封顶）
+    state.turnPlaceLimit = Math.max(0, state.pools[1][ATOM_BLACK] ?? 0)
     state.turnAttackLimit = 1
     state.phase0Choice = null
     state.phase = PHASE_PLACE
     state.turnPlacedCount = 0
     state.placementHistory = []
+    delete state._lastAIPlaceStepDone
+    return
+  }
+  if (cfg.gameMode === 'ai_level2' && state.currentPlayer === 1) {
+    state.turnDrawCount = 0
+    const drawN = Math.max(1, Math.min(20, cfg.ai2DrawCount ?? 10))
+    const weights = Array.isArray(cfg.ai2DrawWeights) && cfg.ai2DrawWeights.length >= 8
+      ? cfg.ai2DrawWeights.slice(0, 8)
+      : [5, 2, 2, 0, 0, 0, 0, 0]
+    const drawn = drawAtoms(drawN, weights)
+    const pool = state.pools[1]
+    for (const color of drawn) {
+      pool[color] = (pool[color] ?? 0) + 1
+    }
+    state.turnPlaceLimit = Math.max(1, Math.min(25, cfg.ai2PlaceLimit ?? 12))
+    state.turnAttackLimit = 1
+    state.phase0Choice = null
+    state.phase = PHASE_PLACE
+    state.turnPlacedCount = 0
+    state.placementHistory = []
+    delete state._lastAIPlaceStepDone
     return
   }
   state.turnDrawCount = cfg.baseDrawCount ?? 10
@@ -76,8 +97,9 @@ export function startTurnDefault(state) {
 
 export function validatePlace(state, cellIndex, r, c, color, options = {}) {
   if (state.phase !== PHASE_PLACE) return [false, '当前不是排布阶段']
-  // 可排布原子数 = 本回合能放置的「所有颜色原子数之和」的上限
-  if (state.turnPlacedCount >= state.turnPlaceLimit) return [false, '本回合放置数已达上限']
+  // 本回合已放置总数（所有颜色合计）不得超过 turnPlaceLimit
+  const placed = placementCountThisTurn(state)
+  if (placed >= (state.turnPlaceLimit ?? 0)) return [false, '本回合放置数已达上限']
   const pool = state.pools[state.currentPlayer]
   if ((pool[color] ?? 0) <= 0) return [false, '没有该颜色原子']
   const targetPlayer =
@@ -123,6 +145,8 @@ export function validatePlace(state, cellIndex, r, c, color, options = {}) {
 }
 
 export function applyPlace(state, cellIndex, r, c, color, options = {}) {
+  const placed = placementCountThisTurn(state)
+  if (placed >= (state.turnPlaceLimit ?? 0)) return false // 本回合已放总数达上限，不能再放置任何原子
   const targetPlayer =
     (color === ATOM_WHITE || color === ATOM_GRAY) && options.targetPlayer != null
       ? options.targetPlayer
@@ -135,18 +159,12 @@ export function applyPlace(state, cellIndex, r, c, color, options = {}) {
   if (color === ATOM_WHITE) {
     cell.remove(r, c)
     state.pools[state.currentPlayer][color]--
-    state.turnPlacedCount++
-    state.placementHistory = state.placementHistory ?? []
-    state.placementHistory.push({ player: state.currentPlayer, targetPlayer, cellIndex, r, c, color })
     const connectivityChoice = getConnectivityChoice(cell)
     return { applied: true, connectivityChoice, defender: targetPlayer, cellIndex }
   }
   const targetCell = state.cells[targetPlayer][cellIndex]
   targetCell.place(r, c, color)
   state.pools[state.currentPlayer][color]--
-  state.turnPlacedCount++
-  state.placementHistory = state.placementHistory ?? []
-  state.placementHistory.push({ player: state.currentPlayer, targetPlayer, cellIndex, r, c, color })
   return true
 }
 
@@ -156,7 +174,7 @@ export function canUndoPlacement(state) {
   return state.phase === PHASE_PLACE && hist.some((h) => h.color !== ATOM_BLACK && h.color !== ATOM_WHITE)
 }
 
-/** 撤回最后一个非黑、非白原子的放置；黑与白不可撤回 */
+/** 撤回最后一个非黑、非白原子的放置；黑与白不可撤回。计数以 placementHistory 为准会随之下降。 */
 export function undoLastPlacement(state) {
   const hist = state.placementHistory ?? []
   if (hist.length === 0) return false
@@ -175,12 +193,14 @@ export function undoLastPlacement(state) {
   const cell = state.cells[cellOwner][last.cellIndex]
   cell.remove(last.r, last.c)
   state.pools[last.player][last.color] = (state.pools[last.player][last.color] ?? 0) + 1
-  state.turnPlacedCount--
+  state.turnPlacedCount = placementCountThisTurn(state)
   return true
 }
 
 /**
  * 纯函数：只计算要放置的黑原子坐标，不修改 state。
+ * 约束：每个新放置的黑原子，其邻居中至少有一个已放置的黑原子（本格已有黑或本批已放的黑）；
+ * 仅当本格尚无任何黑原子时，第一个黑可放在任意空位（中心或随机）。
  * 返回 [ok, msg, placements]，placements 为 [[r,c], ...]。
  */
 export function batchPlaceOnCell(state, cellIndex, n, viewCenter) {
@@ -189,8 +209,9 @@ export function batchPlaceOnCell(state, cellIndex, n, viewCenter) {
   const cells = state.cells[state.currentPlayer]
   if (cellIndex < 0 || cellIndex >= cells.length) return [false, '无效格子', null]
   const cell = cells[cellIndex]
-  const remaining = state.turnPlaceLimit - state.turnPlacedCount
-  if (remaining <= 0) return [false, '本回合放置数已达上限', null]
+  const placed = placementCountThisTurn(state)
+  const remaining = (state.turnPlaceLimit ?? 0) - placed
+  if (remaining <= 0) return [false, '本回合放置数已达上限', null] // 本回合已放总数达上限后不能再放
   const count = Math.min(pool[ATOM_BLACK] ?? 0, Math.max(0, n), remaining)
   if (count <= 0) return [false, '数量为 0 或池中无黑原子', null]
   const allPts = cell.grid.allPoints()
@@ -201,6 +222,7 @@ export function batchPlaceOnCell(state, cellIndex, n, viewCenter) {
   const empty = new Set([...valid].filter((k) => !occupied.has(k)))
   if (empty.size === 0) return [false, '该格已无空位', null]
 
+  /** 返回与至少一个黑原子相邻的空格（保证新放的黑原子满足「邻居中至少有一个已放置的黑」） */
   function emptyNeighborsOfBlack(occ, blk, emp) {
     if (blk.size === 0) return []
     const out = []

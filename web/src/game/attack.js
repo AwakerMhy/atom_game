@@ -108,7 +108,13 @@ export function resolveAttackRandomAuto(state, attackMyCell, attackEnemyCell) {
   defCell = state.cells[enP][enCi]
   let choice = getConnectivityChoice(defCell)
   while (choice) {
-    const idx = Math.floor(Math.random() * choice.components.length)
+    const blackPoints = defCell.blackPoints()
+    const pickMaxBlack = enP === 1
+    const idx = pickMaxBlack
+      ? choice.components
+          .map((comp) => comp.filter((k) => blackPoints.has(k)).length)
+          .reduce((best, count, i) => (count > best.count ? { idx: i, count } : best), { idx: 0, count: -1 }).idx
+      : Math.floor(Math.random() * choice.components.length)
     const toKeep = choice.components[idx]
     applyConnectivityChoice(defCell, choice.type, toKeep)
     defCell = state.cells[enP][enCi]
