@@ -326,8 +326,9 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
           </div>
         )}
 
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8">
-          <div className="flex-1 space-y-5">
+        <div className={`flex gap-6 sm:gap-8 ${gameMode === 'ai_level1' || gameMode === 'ai_level2' ? 'flex-row items-start' : 'flex-col'}`}>
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8 flex-1 min-w-0">
+          <div className="flex-1 space-y-5 min-w-0">
             <p className="text-xs text-gray-500">{gameMode === 'ai_level1' || gameMode === 'ai_level2' ? '玩家（P0）配置' : '双方配置'}</p>
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-300">每局获得原子数</label>
@@ -418,15 +419,27 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
             </div>
             <p className="mt-1 text-xs text-gray-500">总权重: {totalWeight}，{totalWeight === 0 ? '等概率' : '按权重随机'}</p>
           </div>
-        </div>
+          </div>
 
-        <div className="mt-8 flex justify-center">
-          <button
-            onClick={handleStart}
-            className="rounded-lg bg-amber-600 px-8 py-2.5 font-semibold text-white shadow-lg transition hover:bg-amber-500 active:scale-95"
-          >
-            开始游戏
-          </button>
+          {(gameMode === 'ai_level1' || gameMode === 'ai_level2') ? (
+            <div className="shrink-0 flex flex-col items-center justify-center pt-2">
+              <button
+                onClick={handleStart}
+                className="rounded-lg bg-amber-600 px-8 py-2.5 font-semibold text-white shadow-lg transition hover:bg-amber-500 active:scale-95 whitespace-nowrap"
+              >
+                开始游戏
+              </button>
+            </div>
+          ) : (
+            <div className="flex justify-center">
+              <button
+                onClick={handleStart}
+                className="rounded-lg bg-amber-600 px-8 py-2.5 font-semibold text-white shadow-lg transition hover:bg-amber-500 active:scale-95"
+              >
+                开始游戏
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

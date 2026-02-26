@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import { createGameState, pool, canAttackThisTurn, opponent, hasCellAttackedThisTurn, getAttackableEnemyCellIndices, getRedEffectTargetableEnemyCellIndices, isGraySilenced, placementCountThisTurn } from './game/state.js'
-import { startTurnDefault } from './game/turn.js'
+import { startTurnDefault, undoLastPlacement } from './game/turn.js'
 import { applyPlace, batchPlaceOnCell, validatePlace } from './game/turn.js'
 import {
   applyDirectAttack,
@@ -29,6 +29,7 @@ export default function App() {
     const s = createGameState(config)
     startTurnDefault(s)
     setState(s)
+    setGameLog([])
     setInGame(true)
   }, [])
   const [selectedColor, setSelectedColor] = useState(null)
@@ -52,6 +53,7 @@ export default function App() {
   const destroyTimeoutRef = useRef(null)
   const aiAttackDestroyedRef = useRef(null)
   const aiAttackDamageRef = useRef(null)
+  const aiPendingAttackLogsRef = useRef([])
   const aiDamagePopupRef = useRef(null)
   const damagePopupTimeoutRef = useRef(null)
   const aiPlaceTimeoutRef = useRef(null)
@@ -64,6 +66,19 @@ export default function App() {
   const lastSinglePlaceResultRef = useRef(null)
   const [whitePlaceConnectivityTrigger, setWhitePlaceConnectivityTrigger] = useState(0)
   const [placeCountTick, setPlaceCountTick] = useState(0)
+  const [gameLog, setGameLog] = useState([])
+  const gameLogIdRef = useRef(0)
+  const lastBatchPlaceRef = useRef(null)
+
+  const pushGameLog = useCallback((entry) => {
+    const { type, player, text, detail, turnBoundary } = typeof entry === 'function' ? entry() : entry
+    if (!text) return
+    gameLogIdRef.current += 1
+    setGameLog((prev) => {
+      const next = [...prev, { id: gameLogIdRef.current, type, player, text, detail, turnBoundary }]
+      return next.slice(-300)
+    })
+  }, [])
 
   // 本回合已放置总数（黑/红/蓝/绿/黄/紫/白/灰合计），不得超过 turnPlaceLimit
   const placePhasePlaced = placementCountThisTurn(state)
@@ -80,6 +95,12 @@ export default function App() {
   useEffect(() => {
     const prev = prevPhaseRef.current
     prevPhaseRef.current = state.phase
+    if (state.phase === PHASE_PLACE && prev !== PHASE_PLACE) {
+      pushGameLog({ type: 'phase', player: state.currentPlayer, text: `P${state.currentPlayer} 开始排布`, turnBoundary: true })
+    }
+    if (state.phase === PHASE_ACTION && prev !== PHASE_ACTION) {
+      pushGameLog({ type: 'phase', player: state.currentPlayer, text: `P${state.currentPlayer} 开始行动`, turnBoundary: true })
+    }
     const leftActionPhase = prev === PHASE_ACTION && state.phase !== PHASE_ACTION
     if (leftActionPhase) {
       setActionSubstate('idle')
@@ -103,7 +124,7 @@ export default function App() {
         return next
       })
     }
-  }, [state.phase])
+  }, [state.phase, state.currentPlayer, pushGameLog])
 
   useEffect(() => () => {
     if (destroyTimeoutRef.current) clearTimeout(destroyTimeoutRef.current)
@@ -215,16 +236,38 @@ export default function App() {
             const ret = runOneAIAttack(prev, [myCi, enCi])
             aiAttackDestroyedRef.current = ret.destroyedAtoms
             aiAttackDamageRef.current = ret.damage ?? 1
+            aiPendingAttackLogsRef.current.push({
+              myCi,
+              enCi,
+              dmg: ret.damage ?? 1,
+              destroyedCount: ret.destroyedAtoms?.length ?? 0,
+              destroyedAtoms: ret.destroyedAtoms ?? [],
+            })
             return { ...prev }
           })
           setTimeout(() => {
+            const pending = aiPendingAttackLogsRef.current
+            aiPendingAttackLogsRef.current = []
             resetAttackState()
-            if (aiAttackDestroyedRef.current?.length) triggerDestroyAnimation(aiAttackDestroyedRef.current)
+            const last = pending[pending.length - 1]
+            if (last?.destroyedAtoms?.length) triggerDestroyAnimation(last.destroyedAtoms)
             aiAttackDestroyedRef.current = null
-            if (aiAttackDamageRef.current != null) {
-              setAttackMessage(`造成 ${aiAttackDamageRef.current} 点伤害`)
-              triggerDamagePopup(0, enCi, aiAttackDamageRef.current)
-              aiAttackDamageRef.current = null
+            aiAttackDamageRef.current = null
+            const seen = new Set()
+            let uniqueDmg = 0
+            for (const e of pending) {
+              if (e.dmg == null) continue
+              const key = `${e.myCi},${e.enCi},${e.dmg},${e.destroyedCount}`
+              if (seen.has(key)) continue
+              seen.add(key)
+              uniqueDmg += e.dmg ?? 0
+              pushGameLog({ type: 'attack', player: 1, text: `P1（AI）用格子${e.myCi} 进攻 P0 格子${e.enCi}，造成 ${e.dmg} 点伤害` })
+              if (e.destroyedCount > 0) pushGameLog({ type: 'destroy', player: 0, text: `P0 格子${e.enCi} 被破坏 ${e.destroyedCount} 个黑原子` })
+            }
+            const lastDmg = last?.dmg
+            if (lastDmg != null) {
+              setAttackMessage(seen.size > 1 ? `共 ${seen.size} 次进攻，造成 ${uniqueDmg} 点伤害` : `造成 ${lastDmg} 点伤害`)
+              triggerDamagePopup(0, last.enCi, lastDmg)
             }
           }, 0)
         }, attackHighlightMs)
@@ -274,12 +317,15 @@ export default function App() {
           return { ...prev, currentPlayer: 0, phase: PHASE_PLACE }
         })
         setTimeout(() => {
+          const redDestroyed = aiAttackDestroyedRef.current?.length ?? 0
           resetAttackState()
           if (aiAttackDestroyedRef.current?.length) triggerDestroyAnimation(aiAttackDestroyedRef.current)
           aiAttackDestroyedRef.current = null
+          if (redDestroyed > 0) pushGameLog({ type: 'effect', player: 1, text: `P1（AI）发动红效果，P0 被破坏 ${redDestroyed} 个黑原子` })
           if (aiBlueFlashRef.current) {
             const { player, cellIndex, r, c } = aiBlueFlashRef.current
             triggerEffectFlash(player, cellIndex, r, c)
+            pushGameLog({ type: 'effect', player: 1, text: `P1（AI）发动蓝效果（格子${cellIndex}）` })
             aiBlueFlashRef.current = null
           }
           if (aiLevel2AttackChoiceRef.current) {
@@ -294,16 +340,38 @@ export default function App() {
                 const ret = runOneAIAttack(prev, [myCi, enCi])
                 aiAttackDestroyedRef.current = ret.destroyedAtoms ?? []
                 aiAttackDamageRef.current = ret.damage ?? 1
+                aiPendingAttackLogsRef.current.push({
+                  myCi,
+                  enCi,
+                  dmg: ret.damage ?? 1,
+                  destroyedCount: ret.destroyedAtoms?.length ?? 0,
+                  destroyedAtoms: ret.destroyedAtoms ?? [],
+                })
                 return { ...prev }
               })
               setTimeout(() => {
+                const pending = aiPendingAttackLogsRef.current
+                aiPendingAttackLogsRef.current = []
                 resetAttackState()
-                if (aiAttackDestroyedRef.current?.length) triggerDestroyAnimation(aiAttackDestroyedRef.current)
+                const last = pending[pending.length - 1]
+                if (last?.destroyedAtoms?.length) triggerDestroyAnimation(last.destroyedAtoms)
                 aiAttackDestroyedRef.current = null
-                if (aiAttackDamageRef.current != null) {
-                  setAttackMessage(`造成 ${aiAttackDamageRef.current} 点伤害`)
-                  triggerDamagePopup(0, enCi, aiAttackDamageRef.current)
-                  aiAttackDamageRef.current = null
+                aiAttackDamageRef.current = null
+                const seen = new Set()
+                let uniqueDmg = 0
+                for (const e of pending) {
+                  if (e.dmg == null) continue
+                  const key = `${e.myCi},${e.enCi},${e.dmg},${e.destroyedCount}`
+                  if (seen.has(key)) continue
+                  seen.add(key)
+                  uniqueDmg += e.dmg ?? 0
+                  pushGameLog({ type: 'attack', player: 1, text: `P1（AI）用格子${e.myCi} 进攻 P0 格子${e.enCi}，造成 ${e.dmg} 点伤害` })
+                  if (e.destroyedCount > 0) pushGameLog({ type: 'destroy', player: 0, text: `P0 格子${e.enCi} 被破坏 ${e.destroyedCount} 个黑原子` })
+                }
+                const lastDmg = last?.dmg
+                if (lastDmg != null) {
+                  setAttackMessage(seen.size > 1 ? `共 ${seen.size} 次进攻，造成 ${uniqueDmg} 点伤害` : `造成 ${lastDmg} 点伤害`)
+                  triggerDamagePopup(0, last.enCi, lastDmg)
                 }
                 aiLevel2ActionTimeoutRef.current = setTimeout(runNextLevel2Action, attackHighlightMs)
               }, 0)
@@ -342,6 +410,7 @@ export default function App() {
           setAttackMessage('蓝效果：相邻黑原子下一回合内不可被破坏')
         }
       })
+      pushGameLog({ type: 'effect', player, text: `P${player} 发动蓝效果（格子${cellIndex}），相邻黑原子本回合内受保护` })
       return
     }
     if (color === 'green') {
@@ -352,6 +421,7 @@ export default function App() {
       if (effectResult === true || (effectResult && effectResult.ok)) {
         triggerEffectFlash(player, cellIndex, r, c)
         setAttackMessage('绿效果：该格点变为黑原子')
+        pushGameLog({ type: 'effect', player, text: `P${player} 发动绿效果（格子${cellIndex}），该格点变为黑原子` })
       }
       if (effectResult && typeof effectResult === 'object' && effectResult.connectivityChoice) {
         setConnectivityChoice(effectResult.connectivityChoice)
@@ -367,6 +437,7 @@ export default function App() {
       if (effectResult === true || (effectResult && effectResult.ok)) {
         triggerEffectFlash(player, cellIndex, r, c)
         setAttackMessage('黄效果：相邻黑原子下回合内优先被破坏')
+        pushGameLog({ type: 'effect', player, text: `P${player} 发动黄效果（格子${cellIndex}），相邻黑原子下回合优先被破坏` })
       }
       if (effectResult && typeof effectResult === 'object' && effectResult.connectivityChoice) {
         setConnectivityChoice(effectResult.connectivityChoice)
@@ -382,10 +453,11 @@ export default function App() {
       if (grayOk) {
         triggerEffectFlash(player, cellIndex, r, c)
         setAttackMessage('灰效果：周围格点下一回合内无法发动其他原子点击效果')
+        pushGameLog({ type: 'effect', player, text: `P${player} 发动灰效果（格子${cellIndex}），周围格点本回合内无法发动其他点击效果` })
       }
       return
     }
-  }, [effectPendingAtom, updateState, triggerEffectFlash])
+  }, [effectPendingAtom, updateState, triggerEffectFlash, pushGameLog])
 
   const handleEffectCancel = useCallback(() => {
     setEffectPendingAtom(null)
@@ -406,6 +478,12 @@ export default function App() {
       setAttackMessage(ret.message ?? '')
     }
     if (ret.destroyedAtoms?.length) triggerDestroyAnimation(ret.destroyedAtoms)
+    if (ret.damage != null && (ret.substate === 'idle' || ret.substate === 'defender_choose_connected')) {
+      pushGameLog({ type: 'attack', player: attackMyCell[0], text: `P${attackMyCell[0]} 用格子${attackMyCell[1]} 进攻 P${attackEnemyCell[0]} 格子${attackEnemyCell[1]}，造成 ${ret.damage} 点伤害` })
+      if (ret.destroyedAtoms?.length) {
+        pushGameLog({ type: 'destroy', player: attackEnemyCell[0], text: `P${attackEnemyCell[0]} 格子${attackEnemyCell[1]} 被破坏 ${ret.destroyedAtoms.length} 个黑原子` })
+      }
+    }
     if (ret.substate === 'idle' && ret.attackConsumed !== false) {
       updateState((s) => {
         s.attackedCellsThisTurn = s.attackedCellsThisTurn ?? []
@@ -449,7 +527,7 @@ export default function App() {
         updateState((s) => { s.currentPlayer = cc.defender })
       }
     }
-  }, [state, attackMyCell, attackEnemyCell, updateState, resetAttackState, triggerDestroyAnimation, triggerDamagePopup])
+  }, [state, attackMyCell, attackEnemyCell, updateState, resetAttackState, triggerDestroyAnimation, triggerDamagePopup, pushGameLog])
 
   const handleAttackCancel = useCallback(() => {
     setAttackEnemyCell(null)
@@ -457,6 +535,11 @@ export default function App() {
     setActionSubstate('idle')
     setAttackMessage('')
   }, [])
+
+  const handleUndo = useCallback(() => {
+    updateState((s) => undoLastPlacement(s))
+    pushGameLog({ type: 'undo', player: state.currentPlayer, text: `P${state.currentPlayer} 撤回了上一步放置` })
+  }, [updateState, pushGameLog, state.currentPlayer])
 
   const handleConnectivityChoice = useCallback(
     (choiceIndex) => {
@@ -580,6 +663,8 @@ export default function App() {
                   s.redEffectTargetCellIndicesThisTurn.push(cellIndex)
                 })
                 setAttackMessage('红效果：已随机破坏对方黑原子')
+                const n = result?.destroyedAtoms?.length ?? 0
+                pushGameLog({ type: 'effect', player: src.player, text: `P${src.player} 对 P${opp} 格子${cellIndex} 发动红效果${n ? `，破坏 ${n} 个黑原子` : ''}` })
               }
             } else {
               setAttackMessage('该格无可破坏的黑原子')
@@ -681,6 +766,7 @@ export default function App() {
       if (batchMode) {
         const n = Math.min(Math.max(0, Math.floor(batchCount)), maxBatch)
         if (n <= 0) return
+        lastBatchPlaceRef.current = []
         updateState((s) => {
           const placed = placementCountThisTurn(s)
           const remaining = (s.turnPlaceLimit ?? 0) - placed
@@ -717,7 +803,16 @@ export default function App() {
           for (const [r, c] of used) {
             s.placementHistory.push({ player, cellIndex, r, c, color: ATOM_BLACK })
           }
+          const arr = lastBatchPlaceRef.current
+          if (Array.isArray(arr)) arr.push({ player, cellIndex, n: used.length })
         })
+        const batchList = lastBatchPlaceRef.current
+        if (Array.isArray(batchList) && batchList.length > 0) {
+          const total = batchList.reduce((s, e) => s + e.n, 0)
+          const first = batchList[0]
+          pushGameLog({ type: 'place', player: first.player, text: `P${first.player} 在格子${first.cellIndex} 放置 ${total} 个黑原子` })
+          lastBatchPlaceRef.current = null
+        }
       } else if (selectedColor && r != null && c != null) {
         // 单次放置（非 batch）：不可变更新——不突变 prev，返回全新 next，确保 React 收到新引用、HUD 会更新
         const targetPlayer = selectedColor === 'white' || selectedColor === 'gray' ? player : state.currentPlayer
@@ -784,6 +879,9 @@ export default function App() {
           })
           setPlaceCountTick((t) => t + 1)
         })
+        const colorLabel = selectedColor === 'black' ? '黑' : selectedColor === 'red' ? '红' : selectedColor === 'blue' ? '蓝' : selectedColor === 'green' ? '绿' : selectedColor === 'yellow' ? '黄' : selectedColor === 'purple' ? '紫' : selectedColor === 'white' ? '白' : selectedColor === 'gray' ? '灰' : selectedColor
+        const targetLabel = (selectedColor === 'white' || selectedColor === 'gray') && player !== state.currentPlayer ? `（对方格子${cellIndex}）` : `（己方格子${cellIndex}）`
+        pushGameLog({ type: 'place', player: state.currentPlayer, text: `P${state.currentPlayer} 放置${colorLabel}原子于格子${cellIndex} ${targetLabel}`, detail: `格点 (${r},${c})` })
         const placeResult = lastSinglePlaceResultRef.current
         if (selectedColor === 'white' && placeResult && typeof placeResult === 'object') {
           const choice = placeResult.connectivityChoice
@@ -819,6 +917,7 @@ export default function App() {
       resetAttackState,
       triggerDestroyAnimation,
       triggerEffectFlash,
+      pushGameLog,
     ]
   )
 
@@ -1024,6 +1123,8 @@ export default function App() {
           setAttackEnemyCell(null)
           setActionSubstate('idle')
         }}
+        onUndo={handleUndo}
+        gameLog={gameLog}
         onDirectAttackConfirm={() => {
           if (attackMyCell) {
             const defender = 1 - attackMyCell[0]
@@ -1037,6 +1138,7 @@ export default function App() {
             })
             setAttackMessage(`直接攻击，造成 ${dmg} 点伤害`)
             triggerDamagePopup(defender, 0, dmg)
+            pushGameLog({ type: 'attack', player: attackMyCell[0], text: `P${attackMyCell[0]} 直接攻击 P${defender}，造成 ${dmg} 点伤害` })
             resetAttackState()
           }
         }}

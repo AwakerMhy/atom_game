@@ -1,4 +1,26 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import React from 'react'
+
+/** 将「造成 N 点伤害」「被破坏 N 个」「破坏 N 个」中的数字用红色高亮，返回 React 节点数组 */
+function highlightDamageAndDestroy(text) {
+  if (!text || typeof text !== 'string') return [text]
+  const parts = []
+  const re = /(造成 )(\d+)( 点伤害)|(被破坏 |破坏 )(\d+)( 个)/g
+  let lastEnd = 0
+  let key = 0
+  let m
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > lastEnd) parts.push(<React.Fragment key={key++}>{text.slice(lastEnd, m.index)}</React.Fragment>)
+    if (m[2]) {
+      parts.push(<React.Fragment key={key++}>{m[1]}</React.Fragment>, <span key={key++} className="text-red-400 font-medium">{m[2]}</span>, <React.Fragment key={key++}>{m[3]}</React.Fragment>)
+    } else {
+      parts.push(<React.Fragment key={key++}>{m[4]}</React.Fragment>, <span key={key++} className="text-red-400 font-medium">{m[5]}</span>, <React.Fragment key={key++}>{m[6]}</React.Fragment>)
+    }
+    lastEnd = re.lastIndex
+  }
+  if (lastEnd < text.length) parts.push(<React.Fragment key={key++}>{text.slice(lastEnd)}</React.Fragment>)
+  return parts.length ? parts : [text]
+}
 import { winner, placementCountThisTurn } from '../game/state.js'
 import { endPlacePhase, endTurn, startTurnDefault, undoLastPlacement, canUndoPlacement } from '../game/turn.js'
 import { applyGreenEndOfTurn } from '../game/combat.js'
@@ -16,6 +38,7 @@ export default function HUD({
   onAttackConfirm,
   onAttackCancel,
   onAttackMyCellCancel,
+  onUndo,
   onDirectAttackConfirm,
   onDirectAttackCancel,
   attackMessage,
@@ -24,10 +47,15 @@ export default function HUD({
   effectPendingAtom,
   onEffectConfirm,
   onEffectCancel,
+  gameLog = [],
 }) {
   const [showRules, setShowRules] = useState(false)
   const [showEndPlaceConfirm, setShowEndPlaceConfirm] = useState(false)
   const [showEndTurnConfirm, setShowEndTurnConfirm] = useState(false)
+  const gameLogScrollRef = useRef(null)
+  useEffect(() => {
+    if (gameLogScrollRef.current) gameLogScrollRef.current.scrollTop = gameLogScrollRef.current.scrollHeight
+  }, [gameLog.length])
   // 本回合已放置总数（黑/红/蓝/绿/黄/紫/白/灰合计），唯一来源为 placementHistory.length；placeCountTick 变化时强制重读
   const placementCount = (state.placementHistory ?? []).length
   const cur = state.currentPlayer
@@ -124,7 +152,30 @@ export default function HUD({
           </div>
         </div>
       )}
-    <div className="fixed right-0 top-24 bottom-20 w-28 flex flex-col gap-2 py-4 pr-2 pl-2 bg-gray-900/90 border-l border-gray-700 z-20">
+    <div className="fixed right-0 top-24 bottom-20 flex z-20">
+      <div className="w-56 flex flex-col border-l border-gray-700 bg-gray-900/95 overflow-hidden">
+        <p className="text-xs font-medium text-amber-400 px-2 py-2 border-b border-gray-600 shrink-0">战局信息</p>
+        <div ref={gameLogScrollRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden py-1 px-2 space-y-1">
+          {gameLog.length === 0 ? (
+            <p className="text-xs text-gray-500">暂无记录</p>
+          ) : (
+            gameLog.map((entry, index) => (
+              <div key={entry.id} className="leading-tight">
+                {entry.turnBoundary && index > 0 && (
+                  <div className="border-t border-red-500/70 border-dashed my-1.5" aria-hidden />
+                )}
+                <div className="text-xs text-gray-300">
+                  <span className={entry.player === 0 ? 'text-amber-300' : entry.player === 1 ? 'text-sky-300' : ''}>
+                    {highlightDamageAndDestroy(entry.text)}
+                  </span>
+                </div>
+                {entry.detail && <span className="block text-gray-500 mt-0.5 text-xs">{entry.detail}</span>}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+      <div className="w-28 flex flex-col gap-2 py-4 pr-2 pl-2 bg-gray-900/90 border-l border-gray-700">
       <p className="text-xs text-gray-400 px-1 pb-2 border-b border-gray-600">
         {state.currentPlayer === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2') &&
           (state.phase === PHASE_PLACE ? 'AI 回合 · 排布中…' : 'AI 回合 · 进攻中…')}
@@ -143,7 +194,7 @@ export default function HUD({
       {state.phase === PHASE_PLACE && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' ? state.currentPlayer === 0 : true) && (
         <>
           <button
-            onClick={() => updateState((s) => undoLastPlacement(s))}
+            onClick={onUndo ?? (() => updateState((s) => undoLastPlacement(s)))}
             disabled={!canUndoPlacement(state)}
             className="px-3 py-2 bg-gray-600 hover:bg-gray-500 disabled:opacity-40 disabled:cursor-not-allowed rounded text-sm w-full"
           >
@@ -247,6 +298,7 @@ export default function HUD({
           )}
         </>
       )}
+      </div>
     </div>
     </>
   )
