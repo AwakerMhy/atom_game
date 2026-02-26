@@ -13,6 +13,7 @@ ATOM_BLACK = "black"
 ATOM_RED = "red"
 ATOM_BLUE = "blue"
 ATOM_GREEN = "green"
+ATOM_YELLOW = "yellow"
 COLORS = (ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN)
 
 

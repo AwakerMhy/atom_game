@@ -43,7 +43,8 @@ export function applyPhase0Choice(state, choice) {
 export function advanceToPhase1(state) {
   state.placementHistory = []
   state.phase = PHASE_DRAW
-  const drawn = drawAtoms(state.turnDrawCount, state.drawWeights)
+  const drawCount = Math.max(1, Math.min(30, Math.floor(Number(state.config?.baseDrawCount ?? state.baseDrawCount ?? state.turnDrawCount ?? 10))))
+  const drawn = drawAtoms(drawCount, state.drawWeights)
   const pool = state.pools[state.currentPlayer]
   for (const color of drawn) {
     pool[color] = (pool[color] ?? 0) + 1
@@ -85,6 +86,21 @@ export function startTurnDefault(state) {
     state.phase = PHASE_PLACE
     state.turnPlacedCount = 0
     state.placementHistory = []
+    delete state._lastAIPlaceStepDone
+    return
+  }
+  if (cfg.gameMode === 'ai_level3' && state.currentPlayer === 1) {
+    state.phase = PHASE_ACTION
+    state.turnPlaceLimit = 0
+    state.turnDrawCount = 0
+    state.turnPlacedCount = 0
+    state.placementHistory = []
+    state.turnAttackUsed = 0
+    state.turnAttackLimit = state.cells[1].filter((c) => c.hasBlack()).length
+    state.attackedCellsThisTurn = []
+    state.attackedEnemyCellIndicesThisTurn = []
+    state.redEffectTargetCellIndicesThisTurn = []
+    state.phase0Choice = null
     delete state._lastAIPlaceStepDone
     return
   }
@@ -310,6 +326,71 @@ export function endTurn(state) {
     }
     if (state.graySilencedUntilTurn[p] != null && state.turnNumber >= state.graySilencedUntilTurn[p]) {
       state.graySilencedPoints[p] = new Set()
+    }
+  }
+}
+
+/** 第三关「增殖」：在 cell 内放置 n 个连通的黑原子（不消耗 pool），用于初始化 AI 格子；第一个原子在格子中央 */
+function placeConnectedBlacksOnCell(cell, n) {
+  if (n <= 0) return
+  const allPts = cell.grid.allPoints()
+  const valid = new Set(allPts.map(([r, c]) => `${r},${c}`))
+  let empty = new Set(valid)
+  for (const [k] of cell.allAtoms()) empty.delete(k)
+  if (empty.size === 0) return
+  const centerKey = `${cell.grid.centerR},${cell.grid.centerC}`
+  const first = empty.has(centerKey) ? centerKey : [...empty][Math.floor(Math.random() * empty.size)]
+  const [r0, c0] = first.split(',').map(Number)
+  cell.place(r0, c0, ATOM_BLACK)
+  let blk = new Set([first])
+  empty.delete(first)
+  for (let i = 1; i < n; i++) {
+    const candidates = []
+    for (const k of blk) {
+      const [r, c] = k.split(',').map(Number)
+      for (const [nr, nc] of cell.grid.neighborsOf(r, c)) {
+        const pk = `${nr},${nc}`
+        if (empty.has(pk)) candidates.push(pk)
+      }
+    }
+    const uniq = [...new Set(candidates)]
+    if (uniq.length === 0) break
+    const pick = uniq[Math.floor(Math.random() * uniq.length)]
+    const [rr, cc] = pick.split(',').map(Number)
+    cell.place(rr, cc, ATOM_BLACK)
+    blk.add(pick)
+    empty.delete(pick)
+  }
+}
+
+/** 第三关「增殖」：开局时初始化 P1 每个格子有 x 个连通黑原子 */
+export function initLevel3AICells(state) {
+  const x = Math.max(1, Math.min(20, state.config?.ai3InitialBlack ?? 3))
+  for (const cell of state.cells[1]) {
+    placeConnectedBlacksOnCell(cell, x)
+  }
+}
+
+/** 第三关「增殖」：AI 回合结束时，每个 P1 格子的每个黑原子周围随机新增 y 个黑原子（空邻居） */
+export function applyLevel3Proliferation(state) {
+  const y = Math.max(1, Math.min(6, state.config?.ai3ProliferatePerBlack ?? 2))
+  for (const cell of state.cells[1]) {
+    const blacks = [...cell.blackPoints()]
+    const toAdd = new Set()
+    for (const key of blacks) {
+      const [r, c] = key.split(',').map(Number)
+      const neighbors = cell.grid.neighborsOf(r, c)
+      const empty = neighbors.filter(([nr, nc]) => cell.get(nr, nc) == null).map(([nr, nc]) => `${nr},${nc}`)
+      const pick = Math.min(y, empty.length)
+      for (let i = 0; i < pick; i++) {
+        const idx = Math.floor(Math.random() * empty.length)
+        toAdd.add(empty[idx])
+        empty.splice(idx, 1)
+      }
+    }
+    for (const key of toAdd) {
+      const [r, c] = key.split(',').map(Number)
+      cell.place(r, c, ATOM_BLACK)
     }
   }
 }

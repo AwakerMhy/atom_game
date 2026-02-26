@@ -7,7 +7,7 @@ const BADGES = { black: 'bg-black', red: 'bg-red-700', blue: 'bg-blue-700', gree
 
 const DEFAULT_WEIGHTS = [3, 1, 1, 1, 1, 0, 0, 0]
 
-export default function StartScreen({ onStart, defaultConfig = {} }) {
+function StartScreen({ onStart, defaultConfig = {} }) {
   const [showRules, setShowRules] = useState(false)
   const [showAILevelSelect, setShowAILevelSelect] = useState(false)
   const [gameMode, setGameMode] = useState(defaultConfig.gameMode ?? 'normal')
@@ -16,6 +16,7 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
   const [basePlaceLimit, setBasePlaceLimit] = useState(defaultConfig.basePlaceLimit ?? 10)
   const [initialHp, setInitialHp] = useState(defaultConfig.initialHp ?? 20)
   const [cellCount, setCellCount] = useState(defaultConfig.cellCount ?? 3)
+  const [synthesis, setSynthesis] = useState(defaultConfig.synthesis !== false)
   const [aiBlackPerTurn, setAiBlackPerTurn] = useState(defaultConfig.aiBlackPerTurn ?? 8)
   const [aiPlaceLimit, setAiPlaceLimit] = useState(defaultConfig.aiPlaceLimit ?? 15)
   const [ai2DrawCount, setAi2DrawCount] = useState(defaultConfig.ai2DrawCount ?? 10)
@@ -23,6 +24,8 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
   const [ai2WeightBlack, setAi2WeightBlack] = useState(defaultConfig.ai2WeightBlack ?? 5)
   const [ai2WeightRed, setAi2WeightRed] = useState(defaultConfig.ai2WeightRed ?? 2)
   const [ai2WeightBlue, setAi2WeightBlue] = useState(defaultConfig.ai2WeightBlue ?? 2)
+  const [ai3InitialBlack, setAi3InitialBlack] = useState(defaultConfig.ai3InitialBlack ?? 3)
+  const [ai3ProliferatePerBlack, setAi3ProliferatePerBlack] = useState(defaultConfig.ai3ProliferatePerBlack ?? 2)
   const [drawWeights, setDrawWeights] = useState(
     () => {
       const w = defaultConfig.drawWeights
@@ -46,7 +49,8 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
   const handleStart = () => {
     const config = {
       gameMode,
-      baseDrawCount: Math.max(1, Math.min(30, baseDrawCount)),
+      synthesis,
+      baseDrawCount: Math.max(1, Math.min(30, Math.round(Number(baseDrawCount) || 10))),
       basePlaceLimit: Math.max(1, Math.min(30, basePlaceLimit)),
       initialHp: Math.max(1, Math.min(99, initialHp)),
       cellCount: Math.max(2, Math.min(6, cellCount)),
@@ -69,7 +73,11 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
         0, 0, 0, 0, 0,
       ]
     }
-    if (gameMode === 'ai_level1' || gameMode === 'ai_level2') {
+    if (gameMode === 'ai_level3') {
+      config.ai3InitialBlack = Math.max(1, Math.min(20, ai3InitialBlack))
+      config.ai3ProliferatePerBlack = Math.max(1, Math.min(6, ai3ProliferatePerBlack))
+    }
+    if (gameMode === 'ai_level1' || gameMode === 'ai_level2' || gameMode === 'ai_level3') {
       config.aiSpeedMultiplier = Math.max(0.25, Math.min(4, Number(aiSpeedMultiplier) || 1))
     }
     onStart(config)
@@ -134,6 +142,13 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
             </button>
             <button
               type="button"
+              onClick={() => { setGameMode('ai_level3'); setShowAILevelSelect(false) }}
+              className="px-6 py-3 rounded-lg text-base font-medium bg-gray-600 hover:bg-amber-600 text-white transition"
+            >
+              第三关（增殖：AI 仅黑原子，无排布，每回合结束增殖）
+            </button>
+            <button
+              type="button"
               onClick={() => { setShowAILevelSelect(false); setGameMode('normal') }}
               className="px-6 py-2 rounded-lg text-sm font-medium bg-gray-700 hover:bg-gray-600 text-gray-300 mt-2"
             >
@@ -159,7 +174,7 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
         </div>
         <h1 className="mb-6 text-center text-2xl font-bold text-amber-400">原子对战</h1>
         <p className="mb-6 text-center text-sm text-gray-400">
-          {gameMode === 'normal' ? '配置本局规则后点击开始' : gameMode === 'ai_level1' ? '第一关配置 · 可返回上方「返回选择关卡」切换关卡' : '第二关配置 · 可返回上方「返回选择关卡」切换关卡'}
+          {gameMode === 'normal' ? '配置本局规则后点击开始' : gameMode === 'ai_level1' ? '第一关配置 · 可返回上方「返回选择关卡」切换关卡' : gameMode === 'ai_level2' ? '第二关配置 · 可返回上方「返回选择关卡」切换关卡' : '第三关配置 · 可返回上方「返回选择关卡」切换关卡'}
         </p>
 
         <div className="mb-6 flex gap-2 justify-center flex-wrap items-center">
@@ -182,7 +197,7 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
             <>
               <span className="text-sm text-gray-400 px-1">当前关卡：</span>
               <span className="text-sm font-medium text-amber-400 px-2 py-1 rounded bg-gray-700">
-                {gameMode === 'ai_level1' ? '第一关' : '第二关'}
+                {gameMode === 'ai_level1' ? '第一关' : gameMode === 'ai_level2' ? '第二关' : '第三关'}
               </span>
               <button
                 type="button"
@@ -305,7 +320,43 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
           </div>
         )}
 
-        {(gameMode === 'ai_level1' || gameMode === 'ai_level2') && (
+        {gameMode === 'ai_level3' && (
+          <div className="mb-6 p-4 rounded-lg bg-gray-700/50 border border-gray-600">
+            <p className="text-sm font-medium text-amber-300 mb-3">第三关（增殖：AI 仅黑原子，无排布，每回合结束增殖）</p>
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-400">每格初始黑原子数 x（1~20）</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={1}
+                    max={20}
+                    value={ai3InitialBlack}
+                    onChange={(e) => setAi3InitialBlack(Number(e.target.value))}
+                    className="flex-1"
+                  />
+                  <span className="w-8 text-right font-mono text-amber-400 text-sm">{ai3InitialBlack}</span>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-400">每黑原子每回合增殖邻居数 y（1~6）</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={1}
+                    max={6}
+                    value={ai3ProliferatePerBlack}
+                    onChange={(e) => setAi3ProliferatePerBlack(Number(e.target.value))}
+                    className="flex-1"
+                  />
+                  <span className="w-8 text-right font-mono text-amber-400 text-sm">{ai3ProliferatePerBlack}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(gameMode === 'ai_level1' || gameMode === 'ai_level2' || gameMode === 'ai_level3') && (
           <div className="mb-6 p-4 rounded-lg bg-gray-700/50 border border-gray-600">
             <p className="text-sm font-medium text-amber-300 mb-3">AI 操作展示速度</p>
             <div>
@@ -326,10 +377,10 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
           </div>
         )}
 
-        <div className={`flex gap-6 sm:gap-8 ${gameMode === 'ai_level1' || gameMode === 'ai_level2' ? 'flex-row items-start' : 'flex-col'}`}>
+        <div className={`flex gap-6 sm:gap-8 ${gameMode === 'ai_level1' || gameMode === 'ai_level2' || gameMode === 'ai_level3' ? 'flex-row items-start' : 'flex-col'}`}>
           <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8 flex-1 min-w-0">
           <div className="flex-1 space-y-5 min-w-0">
-            <p className="text-xs text-gray-500">{gameMode === 'ai_level1' || gameMode === 'ai_level2' ? '玩家（P0）配置' : '双方配置'}</p>
+            <p className="text-xs text-gray-500">{(gameMode === 'ai_level1' || gameMode === 'ai_level2' || gameMode === 'ai_level3') ? '玩家（P0）配置' : '双方配置'}</p>
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-300">每局获得原子数</label>
               <div className="flex items-center gap-3">
@@ -337,8 +388,9 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
                   type="range"
                   min={1}
                   max={30}
+                  step={1}
                   value={baseDrawCount}
-                  onChange={(e) => setBaseDrawCount(Number(e.target.value))}
+                  onChange={(e) => setBaseDrawCount(Math.round(Number(e.target.value)) || 1)}
                   className="flex-1"
                 />
                 <span className="w-10 text-right font-mono text-amber-400">{baseDrawCount}</span>
@@ -393,35 +445,52 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
               </div>
               <p className="mt-0.5 text-xs text-gray-500">本回合可放置的原子总数上限（所有颜色合计，黑+红+蓝等不超过此数）</p>
             </div>
+
+            <div className="flex items-center gap-3">
+              <input
+                id="synthesis"
+                type="checkbox"
+                checked={synthesis}
+                onChange={(e) => setSynthesis(e.target.checked)}
+                className="rounded border-gray-500 bg-gray-700 text-amber-500 focus:ring-amber-500"
+              />
+              <label htmlFor="synthesis" className="text-sm font-medium text-gray-300 cursor-pointer">
+                原子合成
+              </label>
+            </div>
+            <p className="mt-0.5 text-xs text-gray-500">勾选后仅抽取黑/红/蓝/黄；排布阶段可将基本原子合成为紫/绿/白/灰</p>
           </div>
 
           <div className="shrink-0 sm:w-64">
             <label className="mb-2 block text-sm font-medium text-gray-300">各原子抽取权重（0~20）</label>
-            <p className="mb-2 text-xs text-gray-500">权重越高，抽到该颜色概率越大。和为 0 时默认等概率。</p>
+            <p className="mb-2 text-xs text-gray-500">权重越高，抽到该颜色概率越大。{synthesis && '勾选原子合成时仅可抽取黑/红/蓝/黄。'} {totalWeight === 0 ? '和为 0 时默认等概率。' : ''}</p>
             <div className="space-y-2">
-              {colorKeys.map((color, i) => (
-                <div key={color} className="flex items-center gap-2">
-                  <span className={`w-10 shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${color === 'white' ? 'text-black' : 'text-white'} ${BADGES[color] ?? 'bg-gray-600'}`}>
-                    {LABELS[color]}
-                  </span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={20}
-                    value={drawWeights[i] ?? 0}
-                    onChange={(e) => updateWeight(i, e.target.value)}
-                    className="flex-1 min-w-0"
-                  />
-                  <span className="w-5 shrink-0 text-right text-xs text-gray-400">{drawWeights[i] ?? 0}</span>
-                  <span className="w-7 shrink-0 text-right text-xs text-gray-500">~{weightPcts[i]}%</span>
-                </div>
-              ))}
+              {colorKeys.map((color, i) => {
+                if (synthesis && ['green', 'purple', 'white', 'gray'].includes(color)) return null
+                return (
+                  <div key={color} className="flex items-center gap-2">
+                    <span className={`w-10 shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${color === 'white' ? 'text-black' : 'text-white'} ${BADGES[color] ?? 'bg-gray-600'}`}>
+                      {LABELS[color]}
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={20}
+                      value={drawWeights[i] ?? 0}
+                      onChange={(e) => updateWeight(i, e.target.value)}
+                      className="flex-1 min-w-0"
+                    />
+                    <span className="w-5 shrink-0 text-right text-xs text-gray-400">{drawWeights[i] ?? 0}</span>
+                    <span className="w-7 shrink-0 text-right text-xs text-gray-500">~{weightPcts[i]}%</span>
+                  </div>
+                )
+              })}
             </div>
             <p className="mt-1 text-xs text-gray-500">总权重: {totalWeight}，{totalWeight === 0 ? '等概率' : '按权重随机'}</p>
           </div>
           </div>
 
-          {(gameMode === 'ai_level1' || gameMode === 'ai_level2') ? (
+          {(gameMode === 'ai_level1' || gameMode === 'ai_level2' || gameMode === 'ai_level3') ? (
             <div className="shrink-0 flex flex-col items-center justify-center pt-2">
               <button
                 onClick={handleStart}
@@ -445,3 +514,5 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
     </div>
   )
 }
+
+export default StartScreen

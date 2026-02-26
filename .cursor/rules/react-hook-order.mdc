@@ -1,0 +1,46 @@
+---
+description: React hook declaration order — callbacks before effects that use them
+globs: **/*.jsx,**/*.tsx
+alwaysApply: false
+---
+
+# React: Declare callbacks before effects that depend on them
+
+In function components, **any `useEffect` (or other hook) that lists a callback in its dependency array must be declared after that callback** in the same component.
+
+## Why
+
+With `const`/`let`, JavaScript has a temporal dead zone: you cannot reference a variable before its declaration. When React runs the component and sets up the effect, it evaluates the dependency array. If an effect is declared above a `useCallback` it depends on, that reference runs before the callback is initialized and throws:
+
+`ReferenceError: Cannot access 'resetAttackState' before initialization`
+
+## Rule
+
+- Define all `useCallback` (and other callback-like values) that are used inside or in the dependency array of an effect **above** that effect.
+- When adding a new effect that depends on existing callbacks, place the effect **below** those callbacks.
+
+## Example
+
+```jsx
+// ❌ BAD — effect is above the callbacks it uses
+useEffect(() => {
+  doSomething()
+  resetAttackState()
+}, [resetAttackState])
+
+const resetAttackState = useCallback(() => { ... }, [])
+const triggerDestroyAnimation = useCallback(() => { ... }, [])
+
+// ✅ GOOD — callbacks first, then effect
+const resetAttackState = useCallback(() => { ... }, [])
+const triggerDestroyAnimation = useCallback(() => { ... }, [])
+
+useEffect(() => {
+  doSomething()
+  resetAttackState()
+}, [resetAttackState])
+```
+
+## Checklist when editing React components
+
+- Before adding or moving a `useEffect` that depends on `useCallback` values: ensure those callbacks are declared earlier in the same component.

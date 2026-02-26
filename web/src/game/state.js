@@ -8,6 +8,9 @@ import {
   ATOM_BLUE,
   ATOM_GREEN,
   ATOM_YELLOW,
+  ATOM_PURPLE,
+  ATOM_WHITE,
+  ATOM_GRAY,
   INITIAL_HP,
   INITIAL_POOL,
   PHASE_CONFIRM,
@@ -26,6 +29,13 @@ function makeCells(count) {
 
 export function createGameState(config = {}) {
   const initialPool = { ...INITIAL_POOL }
+  if (config.synthesis !== false) {
+    initialPool[ATOM_GREEN] = 0
+    initialPool[ATOM_PURPLE] = 0
+    initialPool[ATOM_WHITE] = 0
+    initialPool[ATOM_GRAY] = 0
+    initialPool[ATOM_YELLOW] = Math.max(1, Number(initialPool[ATOM_YELLOW]) || 0)
+  }
   const cfg = {
     gameMode: 'normal',
     baseDrawCount: 10,
@@ -37,10 +47,16 @@ export function createGameState(config = {}) {
     aiPlaceLimit: 15,
     ...config,
   }
+  cfg.baseDrawCount = Math.max(1, Math.min(30, Math.floor(Number(cfg.baseDrawCount) || 10)))
   const base = [3, 1, 1, 1, 1, 0, 0, 0]
   const numColors = 8
   const wIn = Array.isArray(cfg.drawWeights) ? cfg.drawWeights : base
-  const weights = wIn.length >= numColors ? wIn.slice(0, numColors) : [...wIn, ...Array(numColors - wIn.length).fill(0)].slice(0, numColors)
+  let weights = wIn.length >= numColors ? wIn.slice(0, numColors) : [...wIn, ...Array(numColors - wIn.length).fill(0)].slice(0, numColors)
+  // 原子合成开启时：每回合只按黑、红、蓝、黄四个的权重抽牌，其他颜色（绿、紫、白、灰）权重全部为 0
+  if (cfg.synthesis !== false) {
+    const [wBlack, wRed, wBlue, , wYellow] = weights
+    weights = [wBlack, wRed, wBlue, 0, wYellow, 0, 0, 0]
+  }
   const hpVal = Math.max(1, Math.min(99, cfg.initialHp ?? INITIAL_HP))
   const cellCount = Math.max(2, Math.min(6, cfg.cellCount ?? 3))
   return {

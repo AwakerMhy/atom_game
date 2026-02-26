@@ -4,7 +4,7 @@
 from dataclasses import dataclass
 from typing import Dict, List
 
-from src.grid.cell import ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_GREEN
+from src.grid.cell import ATOM_BLACK, ATOM_RED, ATOM_BLUE, ATOM_YELLOW
 
 
 @dataclass
@@ -30,11 +30,11 @@ def default_config() -> GameConfig:
             ATOM_BLACK: 7,
             ATOM_RED: 1,
             ATOM_BLUE: 1,
-            ATOM_GREEN: 1,
+            ATOM_YELLOW: 1
         },
         base_draw_count=10,
         base_place_limit=10,
-        draw_weights=[3, 1, 1, 1],  # 黑 3 : 红 1 : 蓝 1 : 绿 1
+        draw_weights=[3, 1, 1, 0, 1],  # 黑 3 : 红 1 : 蓝 1 : 绿 0, 黄 : 1
         random_destroy_on_attack=True,
         random_place_black_on_neighbor=True,
     )

@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import { createGameState, pool, canAttackThisTurn, opponent, hasCellAttackedThisTurn, getAttackableEnemyCellIndices, getRedEffectTargetableEnemyCellIndices, isGraySilenced, placementCountThisTurn } from './game/state.js'
-import { startTurnDefault, undoLastPlacement } from './game/turn.js'
+import { startTurnDefault, undoLastPlacement, initLevel3AICells, applyLevel3Proliferation } from './game/turn.js'
 import { applyPlace, batchPlaceOnCell, validatePlace } from './game/turn.js'
 import {
   applyDirectAttack,
@@ -10,6 +10,7 @@ import {
 } from './game/attack.js'
 import { applyEffectBlue, applyEffectGreen, applyEffectYellow, applyEffectRedRandom, applyEffectGray, getConnectivityChoice, applyConnectivityChoice, attackPower, defensePower, resolveDirectAttack } from './game/combat.js'
 import { PHASE_PLACE, PHASE_ACTION, INITIAL_HP, ATOM_BLACK } from './game/config.js'
+import { matchRecipe, applySynthesis } from './game/synthesis.js'
 import { runAIPlace, runAIPlaceStep, runAIPlaceStepLevel2, getAIAttackOptions, runOneAIAttack, runAIEndTurn, runAIRedEffect, runAIBlueEffect } from './game/ai.jsx'
 import { Cell } from './game/cell.js'
 import Board from './components/Board.jsx'
@@ -17,7 +18,7 @@ import HUD from './components/HUD.jsx'
 import StartScreen from './components/StartScreen.jsx'
 import { playDestroySound, playEffectSound } from './utils/sound.js'
 
-export default function App() {
+function App() {
   const [inGame, setInGame] = useState(false)
   const [state, setState] = useState(() => {
     const s = createGameState()
@@ -28,6 +29,7 @@ export default function App() {
   const handleStartGame = useCallback((config) => {
     const s = createGameState(config)
     startTurnDefault(s)
+    if (config?.gameMode === 'ai_level3') initLevel3AICells(s)
     setState(s)
     setGameLog([])
     setInGame(true)
@@ -46,11 +48,15 @@ export default function App() {
   const [connectivityChoice, setConnectivityChoice] = useState(null)
   const [pendingAction, setPendingAction] = useState(null)
   const [destroyingAtoms, setDestroyingAtoms] = useState([])
+  const [redEffectHighlightAtoms, setRedEffectHighlightAtoms] = useState([])
+  const [attackHighlightAtoms, setAttackHighlightAtoms] = useState([])
   const [damagePopup, setDamagePopup] = useState(null)
   const [effectFlashAtom, setEffectFlashAtom] = useState(null)
   const [testMode, setTestMode] = useState(false)
   const nextConnectivityChoiceRef = useRef(null)
   const destroyTimeoutRef = useRef(null)
+  const redEffectHighlightTimeoutRef = useRef(null)
+  const attackHighlightTimeoutRef = useRef(null)
   const aiAttackDestroyedRef = useRef(null)
   const aiAttackDamageRef = useRef(null)
   const aiPendingAttackLogsRef = useRef([])
@@ -69,6 +75,8 @@ export default function App() {
   const [gameLog, setGameLog] = useState([])
   const gameLogIdRef = useRef(0)
   const lastBatchPlaceRef = useRef(null)
+  const [showSynthesisPanel, setShowSynthesisPanel] = useState(false)
+  const [synthesisTray, setSynthesisTray] = useState(() => ({ black: 0, red: 0, blue: 0, yellow: 0, white: 0 }))
 
   const pushGameLog = useCallback((entry) => {
     const { type, player, text, detail, turnBoundary } = typeof entry === 'function' ? entry() : entry
@@ -91,6 +99,10 @@ export default function App() {
     }
   }, [batchMode, maxBatch, batchCount])
 
+  useEffect(() => {
+    if (state.phase !== PHASE_PLACE) setSynthesisTray({ black: 0, red: 0, blue: 0, yellow: 0, white: 0 })
+  }, [state.phase])
+
   const prevPhaseRef = useRef(state.phase)
   useEffect(() => {
     const prev = prevPhaseRef.current
@@ -110,7 +122,7 @@ export default function App() {
       setEffectPendingAtom(null)
       setConnectivityChoice(null)
       setPendingAction(null)
-      if (state.currentPlayer === 0 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2')) {
+      if (state.currentPlayer === 0 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' || state.config?.gameMode === 'ai_level3')) {
         setAttackMessage('AI 已结束回合，轮到你了')
       }
     }
@@ -128,6 +140,8 @@ export default function App() {
 
   useEffect(() => () => {
     if (destroyTimeoutRef.current) clearTimeout(destroyTimeoutRef.current)
+    if (redEffectHighlightTimeoutRef.current) clearTimeout(redEffectHighlightTimeoutRef.current)
+    if (attackHighlightTimeoutRef.current) clearTimeout(attackHighlightTimeoutRef.current)
   }, [])
 
   useEffect(() => {
@@ -174,6 +188,30 @@ export default function App() {
     }
   }, [])
 
+  /** 红效果破坏：先显示红圈圈住目标原子，再播放破坏动画 */
+  const triggerRedEffectDestroyAnimation = useCallback((destroyedAtoms) => {
+    if (!destroyedAtoms?.length) return
+    if (redEffectHighlightTimeoutRef.current) clearTimeout(redEffectHighlightTimeoutRef.current)
+    setRedEffectHighlightAtoms(destroyedAtoms)
+    redEffectHighlightTimeoutRef.current = setTimeout(() => {
+      setRedEffectHighlightAtoms([])
+      redEffectHighlightTimeoutRef.current = null
+      triggerDestroyAnimation(destroyedAtoms)
+    }, 1200)
+  }, [triggerDestroyAnimation])
+
+  /** 进攻破坏：先显示深灰圈圈住目标原子，再播放破坏动画 */
+  const triggerAttackDestroyAnimation = useCallback((destroyedAtoms) => {
+    if (!destroyedAtoms?.length) return
+    if (attackHighlightTimeoutRef.current) clearTimeout(attackHighlightTimeoutRef.current)
+    setAttackHighlightAtoms(destroyedAtoms)
+    attackHighlightTimeoutRef.current = setTimeout(() => {
+      setAttackHighlightAtoms([])
+      attackHighlightTimeoutRef.current = null
+      triggerDestroyAnimation(destroyedAtoms)
+    }, 1200)
+  }, [triggerDestroyAnimation])
+
   const triggerEffectFlash = useCallback((player, cellIndex, r, c) => {
     playEffectSound()
     setEffectFlashAtom({ player, cellIndex, r, c })
@@ -192,7 +230,7 @@ export default function App() {
   // AI 对战模式：轮到 P1（AI）时自动执行排布与进攻（分步显示排布、高亮攻击目标、破坏动画）。必须在 resetAttackState、triggerDestroyAnimation、triggerEffectFlash 之后定义。
   // 排布阶段用 ref 驱动链式 timeout，避免依赖 effect 重跑导致超时被清理或漏调度。
   useEffect(() => {
-    const isAI = state.currentPlayer === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2')
+    const isAI = state.currentPlayer === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' || state.config?.gameMode === 'ai_level3')
     if (!inGame || !isAI) return
     const speedMult = Math.max(0.25, Math.min(4, Number(state.config?.aiSpeedMultiplier) || 1))
     const placeStepDelay = Math.round(400 * speedMult)
@@ -250,7 +288,7 @@ export default function App() {
             aiPendingAttackLogsRef.current = []
             resetAttackState()
             const last = pending[pending.length - 1]
-            if (last?.destroyedAtoms?.length) triggerDestroyAnimation(last.destroyedAtoms)
+            if (last?.destroyedAtoms?.length) triggerAttackDestroyAnimation(last.destroyedAtoms)
             aiAttackDestroyedRef.current = null
             aiAttackDamageRef.current = null
             const seen = new Set()
@@ -277,6 +315,7 @@ export default function App() {
       const t = setTimeout(() => {
         setState((prev) => {
           if (prev.currentPlayer !== 1 || prev.phase !== PHASE_ACTION) return prev
+          if (prev.config?.gameMode === 'ai_level3') applyLevel3Proliferation(prev)
           runAIEndTurn(prev)
           return { ...prev, currentPlayer: 0, phase: PHASE_PLACE }
         })
@@ -319,7 +358,7 @@ export default function App() {
         setTimeout(() => {
           const redDestroyed = aiAttackDestroyedRef.current?.length ?? 0
           resetAttackState()
-          if (aiAttackDestroyedRef.current?.length) triggerDestroyAnimation(aiAttackDestroyedRef.current)
+          if (aiAttackDestroyedRef.current?.length) triggerRedEffectDestroyAnimation(aiAttackDestroyedRef.current)
           aiAttackDestroyedRef.current = null
           if (redDestroyed > 0) pushGameLog({ type: 'effect', player: 1, text: `P1（AI）发动红效果，P0 被破坏 ${redDestroyed} 个黑原子` })
           if (aiBlueFlashRef.current) {
@@ -354,7 +393,7 @@ export default function App() {
                 aiPendingAttackLogsRef.current = []
                 resetAttackState()
                 const last = pending[pending.length - 1]
-                if (last?.destroyedAtoms?.length) triggerDestroyAnimation(last.destroyedAtoms)
+                if (last?.destroyedAtoms?.length) triggerAttackDestroyAnimation(last.destroyedAtoms)
                 aiAttackDestroyedRef.current = null
                 aiAttackDamageRef.current = null
                 const seen = new Set()
@@ -391,7 +430,7 @@ export default function App() {
         }
       }
     }
-  }, [inGame, state.currentPlayer, state.phase, state.config?.gameMode, state.turnAttackUsed, resetAttackState, triggerDestroyAnimation, triggerEffectFlash, triggerDamagePopup])
+  }, [inGame, state.currentPlayer, state.phase, state.config?.gameMode, state.turnAttackUsed, resetAttackState, triggerDestroyAnimation, triggerRedEffectDestroyAnimation, triggerAttackDestroyAnimation, triggerEffectFlash, triggerDamagePopup])
 
   const handleEffectConfirm = useCallback(() => {
     if (!effectPendingAtom) return
@@ -477,7 +516,7 @@ export default function App() {
     } else {
       setAttackMessage(ret.message ?? '')
     }
-    if (ret.destroyedAtoms?.length) triggerDestroyAnimation(ret.destroyedAtoms)
+    if (ret.destroyedAtoms?.length) triggerAttackDestroyAnimation(ret.destroyedAtoms)
     if (ret.damage != null && (ret.substate === 'idle' || ret.substate === 'defender_choose_connected')) {
       pushGameLog({ type: 'attack', player: attackMyCell[0], text: `P${attackMyCell[0]} 用格子${attackMyCell[1]} 进攻 P${attackEnemyCell[0]} 格子${attackEnemyCell[1]}，造成 ${ret.damage} 点伤害` })
       if (ret.destroyedAtoms?.length) {
@@ -498,7 +537,7 @@ export default function App() {
       setAttackMessage('请点击对方格子进攻')
     } else if (ret.substate === 'defender_choose_connected' && ret.connectivityChoice) {
       const cc = ret.connectivityChoice
-      if (cc.defender === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2')) {
+      if (cc.defender === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' || state.config?.gameMode === 'ai_level3')) {
         updateState((s) => {
           const cell = s.cells[cc.defender][cc.cellIndex]
           const blackPoints = cell.blackPoints()
@@ -527,7 +566,7 @@ export default function App() {
         updateState((s) => { s.currentPlayer = cc.defender })
       }
     }
-  }, [state, attackMyCell, attackEnemyCell, updateState, resetAttackState, triggerDestroyAnimation, triggerDamagePopup, pushGameLog])
+  }, [state, attackMyCell, attackEnemyCell, updateState, resetAttackState, triggerDestroyAnimation, triggerAttackDestroyAnimation, triggerDamagePopup, pushGameLog])
 
   const handleAttackCancel = useCallback(() => {
     setAttackEnemyCell(null)
@@ -631,11 +670,11 @@ export default function App() {
             setState(next)
             setActionSubstate('idle')
             setRedEffectSource(null)
-            if (result?.destroyedAtoms?.length) triggerDestroyAnimation(result.destroyedAtoms)
+            if (result?.destroyedAtoms?.length) triggerRedEffectDestroyAnimation(result.destroyedAtoms)
             if (result && typeof result === 'object' && result.ok) {
               if (result.connectivityChoice) {
                 const cc = result.connectivityChoice
-                if (cc.defender === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2')) {
+                if (cc.defender === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' || state.config?.gameMode === 'ai_level3')) {
                   updateState((s) => {
                     const cell = s.cells[cc.defender][cc.cellIndex]
                     const blackPoints = cell.blackPoints()
@@ -851,7 +890,7 @@ export default function App() {
             if (selectedColor === 'white' && result && typeof result === 'object' && result.connectivityChoice) {
               const choice = result.connectivityChoice
               const hasMulti = Array.isArray(choice.components) && choice.components.length > 0
-              if (hasMulti && result.defender === 1 && (prev.config?.gameMode === 'ai_level1' || prev.config?.gameMode === 'ai_level2')) {
+              if (hasMulti && result.defender === 1 && (prev.config?.gameMode === 'ai_level1' || prev.config?.gameMode === 'ai_level2' || prev.config?.gameMode === 'ai_level3')) {
                 // AI 方被白原子湮灭产生多连通子集：在构造 next 时直接保留黑原子最多的子集，不弹窗、不交回合给 AI
                 const cellToApply = newCells[result.defender][result.cellIndex]
                 const blackPoints = cellToApply.blackPoints()
@@ -969,7 +1008,15 @@ export default function App() {
           </button>
         </div>
         {state.phase === PHASE_PLACE && (
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            {state.config?.synthesis !== false && (state.config?.gameMode === 'normal' || state.currentPlayer === 0) && (
+              <button
+                onClick={() => setShowSynthesisPanel(true)}
+                className="px-3 py-1 rounded text-sm bg-violet-700 hover:bg-violet-600 text-white"
+              >
+                原子合成
+              </button>
+            )}
             <button
               onClick={() => {
                 const enablingBatch = !batchMode
@@ -1037,6 +1084,8 @@ export default function App() {
           attackHighlightCell={attackMyCell ? { player: attackMyCell[0], cellIndex: attackMyCell[1] } : null}
           connectivityChoice={connectivityChoice ?? state.pendingConnectivityChoice}
           destroyingAtoms={destroyingAtoms}
+          redEffectHighlightAtoms={redEffectHighlightAtoms}
+          attackHighlightAtoms={attackHighlightAtoms}
           damagePopup={damagePopup}
           effectFlashAtom={effectFlashAtom}
           effectPendingAtom={effectPendingAtom}
@@ -1083,20 +1132,14 @@ export default function App() {
                     可拖动视角查看格子，选保留子集：
                   </p>
                   <div className="flex flex-col gap-1.5">
-                    {[
-                      { bg: 'bg-amber-600', hover: 'hover:bg-amber-500', label: '琥珀' },
-                      { bg: 'bg-cyan-600', hover: 'hover:bg-cyan-500', label: '青' },
-                      { bg: 'bg-pink-600', hover: 'hover:bg-pink-500', label: '粉' },
-                      { bg: 'bg-emerald-600', hover: 'hover:bg-emerald-500', label: '翠绿' },
-                      { bg: 'bg-violet-600', hover: 'hover:bg-violet-500', label: '紫' },
-                    ].slice(0, effectiveCC.components.length).map((style, i) => (
+                    {effectiveCC.components.map((_, i) => (
                       <button
                         key={i}
                         onClick={() => handleConnectivityChoice(i)}
-                        className={`px-2 py-1.5 ${style.bg} ${style.hover} rounded text-xs font-medium flex items-center gap-1.5`}
+                        className="px-2 py-1.5 bg-gray-600 hover:bg-gray-500 rounded text-xs font-medium flex items-center gap-1.5"
                       >
                         <span className="w-4 h-4 rounded-full bg-white/30 flex items-center justify-center text-[10px] font-bold">{i + 1}</span>
-                        保留 {i + 1}（{style.label}）
+                        保留子集 {i + 1}
                       </button>
                     ))}
                   </div>
@@ -1150,6 +1193,91 @@ export default function App() {
         onEffectConfirm={handleEffectConfirm}
         onEffectCancel={handleEffectCancel}
       />
+      {showSynthesisPanel && state.config?.synthesis !== false && (state.config?.gameMode === 'normal' || state.currentPlayer === 0) && (
+        <SynthesisPanel
+          state={state}
+          synthesisTray={synthesisTray}
+          setSynthesisTray={setSynthesisTray}
+          onClose={() => setShowSynthesisPanel(false)}
+          updateState={updateState}
+          matchRecipe={matchRecipe}
+          applySynthesis={applySynthesis}
+        />
+      )}
+    </div>
+  )
+}
+
+function SynthesisPanel({ state, synthesisTray, setSynthesisTray, onClose, updateState, matchRecipe, applySynthesis }) {
+  const p = pool(state, state.currentPlayer)
+  const trayTotal = (synthesisTray.black ?? 0) + (synthesisTray.red ?? 0) + (synthesisTray.blue ?? 0) + (synthesisTray.yellow ?? 0) + (synthesisTray.white ?? 0)
+  const canAdd = (color) => (p[color] ?? 0) > (synthesisTray[color] ?? 0) && trayTotal < 3
+  const recipe = matchRecipe(synthesisTray)
+  const canSynthesize = recipe && Object.keys(recipe.in).every((c) => (p[c] ?? 0) >= (recipe.in[c] ?? 0))
+  const trayColors = ['black', 'red', 'blue', 'yellow', 'white']
+  const colorLabel = (c) => ({ black: '黑', red: '红', blue: '蓝', yellow: '黄', white: '白' }[c])
+  const colorBg = (c) => ({ black: 'bg-gray-700', red: 'bg-red-700', blue: 'bg-blue-700', yellow: 'bg-yellow-600', white: 'bg-gray-200 text-gray-800' }[c])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-gray-800 rounded-xl border border-gray-600 p-5 shadow-xl max-w-sm w-full">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-amber-400">原子合成</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white px-2 py-1 rounded">关闭</button>
+        </div>
+        <p className="text-xs text-gray-400 mb-2">将需要合成的原子放入下方（最多3个），匹配配方后点击合成。</p>
+        <div className="mb-3 p-2 rounded bg-gray-700/60 min-h-10 flex flex-wrap items-center gap-1">
+          {trayColors.flatMap((c) =>
+            Array.from({ length: synthesisTray[c] ?? 0 }, (_, i) => (
+              <span key={`${c}-${i}`} className={`px-2 py-0.5 rounded text-xs ${colorBg(c)} ${c !== 'white' ? 'text-white' : ''}`}>
+                {colorLabel(c)}
+              </span>
+            ))
+          )}
+          {trayTotal === 0 && <span className="text-gray-500 text-sm">空</span>}
+        </div>
+        <div className="flex flex-wrap gap-2 mb-3">
+          {trayColors.map((c) => (
+            <button
+              key={c}
+              disabled={!canAdd(c)}
+              onClick={() => setSynthesisTray((t) => ({ ...t, [c]: (t[c] ?? 0) + 1 }))}
+              className={`px-3 py-1 rounded text-sm ${canAdd(c) ? colorBg(c) + ' hover:opacity-90 ' + (c !== 'white' ? 'text-white' : '') : 'bg-gray-600 text-gray-500 cursor-not-allowed'}`}
+            >
+              +{colorLabel(c)}
+            </button>
+          ))}
+        </div>
+        {recipe && (
+          <p className="text-xs text-green-400 mb-2">
+            → {Object.entries(recipe.out).map(([col, n]) => `${col === 'purple' ? '紫' : col === 'green' ? '绿' : col === 'white' ? '白' : '灰'}×${n}`).join(' ')}
+          </p>
+        )}
+        {trayTotal > 0 && !recipe && <p className="text-xs text-amber-400 mb-2">不匹配任何配方</p>}
+        <div className="flex gap-2">
+          <button
+            disabled={!canSynthesize}
+            onClick={() => {
+              if (!recipe || !canSynthesize) return
+              updateState((s) => {
+                const newPool = { ...s.pools[s.currentPlayer] }
+                applySynthesis(newPool, recipe)
+                s.pools = s.pools.map((p, i) => (i === s.currentPlayer ? newPool : p))
+              })
+              setSynthesisTray({ black: 0, red: 0, blue: 0, yellow: 0, white: 0 })
+            }}
+            className={`px-4 py-2 rounded text-sm font-medium ${canSynthesize ? 'bg-violet-600 hover:bg-violet-500 text-white' : 'bg-gray-600 text-gray-500 cursor-not-allowed'}`}
+          >
+            合成
+          </button>
+          <button
+            onClick={() => setSynthesisTray({ black: 0, red: 0, blue: 0, yellow: 0, white: 0 })}
+            className="px-4 py-2 rounded text-sm bg-gray-600 hover:bg-gray-500"
+          >
+            清空
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1188,3 +1316,5 @@ function PlayerBar({ state, player }) {
     </div>
   )
 }
+
+export default App

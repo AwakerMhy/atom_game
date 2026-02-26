@@ -177,12 +177,12 @@ export default function HUD({
       </div>
       <div className="w-28 flex flex-col gap-2 py-4 pr-2 pl-2 bg-gray-900/90 border-l border-gray-700">
       <p className="text-xs text-gray-400 px-1 pb-2 border-b border-gray-600">
-        {state.currentPlayer === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2') &&
+        {state.currentPlayer === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' || state.config?.gameMode === 'ai_level3') &&
           (state.phase === PHASE_PLACE ? 'AI 回合 · 排布中…' : 'AI 回合 · 进攻中…')}
-        {!(state.currentPlayer === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2')) && state.phase === PHASE_PLACE && (
+        {!(state.currentPlayer === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' || state.config?.gameMode === 'ai_level3')) && state.phase === PHASE_PLACE && (
           <span key={`place-${placeCountTick}`}>排布 · 已放 {Math.min(state.turnPlaceLimit ?? 0, placementCount)}/{state.turnPlaceLimit ?? 0}（所有颜色合计）</span>
         )}
-        {!(state.currentPlayer === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2')) && state.phase === PHASE_ACTION &&
+        {!(state.currentPlayer === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' || state.config?.gameMode === 'ai_level3')) && state.phase === PHASE_ACTION &&
           (attackMessage || `动作 · 进攻 ${state.turnAttackUsed}/${state.turnAttackLimit}`)}
       </p>
       <button
@@ -191,7 +191,7 @@ export default function HUD({
       >
         规则
       </button>
-      {state.phase === PHASE_PLACE && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' ? state.currentPlayer === 0 : true) && (
+      {state.phase === PHASE_PLACE && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' || state.config?.gameMode === 'ai_level3' ? state.currentPlayer === 0 : true) && (
         <>
           <button
             onClick={onUndo ?? (() => updateState((s) => undoLastPlacement(s)))}
@@ -219,14 +219,14 @@ export default function HUD({
             <button
               key={i}
               onClick={() => onConnectivityChoice(i)}
-              className="px-3 py-2 bg-amber-700 hover:bg-amber-600 rounded text-sm w-full"
+              className="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded text-sm w-full"
             >
               保留子集 {i + 1}
             </button>
           ))}
         </>
       )}
-      {state.phase === PHASE_ACTION && !connectivityChoice && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' ? state.currentPlayer === 0 : true) && (
+      {state.phase === PHASE_ACTION && !connectivityChoice && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' || state.config?.gameMode === 'ai_level3' ? state.currentPlayer === 0 : true) && (
         <>
           <button
             onClick={() => setShowEndTurnConfirm(true)}
@@ -242,7 +242,7 @@ export default function HUD({
               取消选择
             </button>
           )}
-          {actionSubstate === 'attack_confirm' && attackMyCell && attackEnemyCell && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' ? state.currentPlayer === 0 : true) && (
+          {actionSubstate === 'attack_confirm' && attackMyCell && attackEnemyCell && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' || state.config?.gameMode === 'ai_level3' ? state.currentPlayer === 0 : true) && (
             <>
               <span className="text-xs text-amber-400 px-1">确认进攻？</span>
               <button
@@ -259,7 +259,7 @@ export default function HUD({
               </button>
             </>
           )}
-          {actionSubstate === 'attack_confirm' && attackMyCell && attackEnemyCell && state.currentPlayer === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2') && (
+          {actionSubstate === 'attack_confirm' && attackMyCell && attackEnemyCell && state.currentPlayer === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' || state.config?.gameMode === 'ai_level3') && (
             <span className="text-xs text-amber-400 px-1">AI 进攻中…</span>
           )}
           {effectPendingAtom && (

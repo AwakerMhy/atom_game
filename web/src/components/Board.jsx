@@ -54,6 +54,8 @@ function CellView({
   isAttackTargetHighlight = false,
   connectivityChoiceCell,
   destroyingAtoms = [],
+  redEffectHighlightAtoms = [],
+  attackHighlightAtoms = [],
   effectFlashAtom = null,
   effectPendingAtom = null,
   testMode = false,
@@ -252,6 +254,30 @@ function CellView({
             </g>
           )
         })}
+        {redEffectHighlightAtoms.map(({ r, c, color }) => {
+          const p = toPx(r, c, scale, ox, oy)
+          const fill = ATOM_COLORS[color] ?? '#888'
+          const ringR = scale * 0.34
+          const ringW = scale * 0.06
+          return (
+            <g key={`red-hl-${r},${c}`}>
+              <circle cx={p.x} cy={p.y} r={ringR} fill="none" stroke="#dc2626" strokeWidth={ringW} strokeOpacity={0.9} />
+              <circle cx={p.x} cy={p.y} r={scale * 0.28} fill={fill} stroke="#dc2626" />
+            </g>
+          )
+        })}
+        {attackHighlightAtoms.map(({ r, c, color }) => {
+          const p = toPx(r, c, scale, ox, oy)
+          const fill = ATOM_COLORS[color] ?? '#888'
+          const ringR = scale * 0.34
+          const ringW = scale * 0.06
+          return (
+            <g key={`attack-hl-${r},${c}`}>
+              <circle cx={p.x} cy={p.y} r={ringR} fill="none" stroke="#374151" strokeWidth={ringW} strokeOpacity={0.9} />
+              <circle cx={p.x} cy={p.y} r={scale * 0.28} fill={fill} stroke="#374151" />
+            </g>
+          )
+        })}
         {destroyingAtoms.map(({ r, c, color }) => {
           const p = toPx(r, c, scale, ox, oy)
           const fill = ATOM_COLORS[color] ?? '#888'
@@ -276,7 +302,7 @@ function CellView({
           return (
             <g key={`${r},${c}`}>
               {compColor != null && (
-                <circle cx={p.x} cy={p.y} r={scale * 0.36} fill={compColor} fillOpacity={0.4} stroke={compColor} strokeWidth={2} />
+                <circle cx={p.x} cy={p.y} r={ringR} fill="none" stroke={compColor} strokeWidth={ringW} strokeOpacity={0.9} />
               )}
               {bothBlueAndYellow ? (
                 <g>
@@ -322,10 +348,12 @@ function CellView({
           const avgC = pts.reduce((s, [, c]) => s + c, 0) / pts.length
           const cen = toPx(avgR, avgC, scale, ox, oy)
           const col = COMPONENT_COLORS[i % COMPONENT_COLORS.length]
+          const ringR = scale * 0.34
+          const ringW = scale * 0.06
           return (
             <g key={`comp-${i}`}>
-              <circle cx={cen.x} cy={cen.y} r={scale * 0.44} fill={col} fillOpacity={0.6} stroke={col} strokeWidth={2} />
-              <text x={cen.x} y={cen.y} textAnchor="middle" dominantBaseline="middle" fill="#111" fontSize={scale * 0.5} fontWeight="bold">
+              <circle cx={cen.x} cy={cen.y} r={ringR + ringW} fill="none" stroke={col} strokeWidth={ringW} strokeOpacity={0.9} />
+              <text x={cen.x} y={cen.y} textAnchor="middle" dominantBaseline="middle" fill={col} fontSize={scale * 0.5} fontWeight="bold">
                 {i + 1}
               </text>
             </g>
@@ -382,6 +410,8 @@ function Board({
   attackHighlightCell = null,
   connectivityChoice = null,
   destroyingAtoms = [],
+  redEffectHighlightAtoms = [],
+  attackHighlightAtoms = [],
   damagePopup = null,
   effectFlashAtom = null,
   effectPendingAtom = null,
@@ -562,6 +592,8 @@ function Board({
           isAttackHighlight={attackHighlightCell?.player === 1 && attackHighlightCell?.cellIndex === i}
           isAttackTargetHighlight={attackEnemyCell != null && attackEnemyCell[0] === 1 && attackEnemyCell[1] === i}
           destroyingAtoms={destroyingAtoms.filter((d) => d.defender === 1 && d.cellIndex === i)}
+          redEffectHighlightAtoms={redEffectHighlightAtoms.filter((d) => d.defender === 1 && d.cellIndex === i)}
+          attackHighlightAtoms={attackHighlightAtoms.filter((d) => d.defender === 1 && d.cellIndex === i)}
           effectFlashAtom={effectFlashAtom}
           effectPendingAtom={effectPendingAtom}
           testMode={testMode}
@@ -592,6 +624,8 @@ function Board({
           isAttackHighlight={attackHighlightCell?.player === 0 && attackHighlightCell?.cellIndex === i}
           isAttackTargetHighlight={attackEnemyCell != null && attackEnemyCell[0] === 0 && attackEnemyCell[1] === i}
           destroyingAtoms={destroyingAtoms.filter((d) => d.defender === 0 && d.cellIndex === i)}
+          redEffectHighlightAtoms={redEffectHighlightAtoms.filter((d) => d.defender === 0 && d.cellIndex === i)}
+          attackHighlightAtoms={attackHighlightAtoms.filter((d) => d.defender === 0 && d.cellIndex === i)}
           effectFlashAtom={effectFlashAtom}
           effectPendingAtom={effectPendingAtom}
           testMode={testMode}
