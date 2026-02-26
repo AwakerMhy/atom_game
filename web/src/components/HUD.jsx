@@ -191,7 +191,7 @@ export default function HUD({
               取消选择
             </button>
           )}
-          {actionSubstate === 'attack_confirm' && attackMyCell && attackEnemyCell && state.currentPlayer === 0 && (
+          {actionSubstate === 'attack_confirm' && attackMyCell && attackEnemyCell && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2' ? state.currentPlayer === 0 : true) && (
             <>
               <span className="text-xs text-amber-400 px-1">确认进攻？</span>
               <button
@@ -208,7 +208,7 @@ export default function HUD({
               </button>
             </>
           )}
-          {actionSubstate === 'attack_confirm' && attackMyCell && attackEnemyCell && state.currentPlayer === 1 && (
+          {actionSubstate === 'attack_confirm' && attackMyCell && attackEnemyCell && state.currentPlayer === 1 && (state.config?.gameMode === 'ai_level1' || state.config?.gameMode === 'ai_level2') && (
             <span className="text-xs text-amber-400 px-1">AI 进攻中…</span>
           )}
           {effectPendingAtom && (

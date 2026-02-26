@@ -158,9 +158,11 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
           </button>
         </div>
         <h1 className="mb-6 text-center text-2xl font-bold text-amber-400">原子对战</h1>
-        <p className="mb-6 text-center text-sm text-gray-400">配置本局规则后点击开始</p>
+        <p className="mb-6 text-center text-sm text-gray-400">
+          {gameMode === 'normal' ? '配置本局规则后点击开始' : gameMode === 'ai_level1' ? '第一关配置 · 可返回上方「返回选择关卡」切换关卡' : '第二关配置 · 可返回上方「返回选择关卡」切换关卡'}
+        </p>
 
-        <div className="mb-6 flex gap-2 justify-center flex-wrap">
+        <div className="mb-6 flex gap-2 justify-center flex-wrap items-center">
           <button
             type="button"
             onClick={() => setGameMode('normal')}
@@ -177,13 +179,19 @@ export default function StartScreen({ onStart, defaultConfig = {} }) {
               进入 AI 对战
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={() => setShowAILevelSelect(true)}
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-amber-600 text-white"
-            >
-              返回选择关卡
-            </button>
+            <>
+              <span className="text-sm text-gray-400 px-1">当前关卡：</span>
+              <span className="text-sm font-medium text-amber-400 px-2 py-1 rounded bg-gray-700">
+                {gameMode === 'ai_level1' ? '第一关' : '第二关'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAILevelSelect(true)}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-amber-600 text-white"
+              >
+                返回选择关卡
+              </button>
+            </>
           )}
         </div>
 

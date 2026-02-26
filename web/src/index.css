@@ -16,9 +16,13 @@ body {
 @keyframes atom-destroy {
   from {
     opacity: 1;
+    transform: scale(1);
+    filter: brightness(1);
   }
   to {
     opacity: 0;
+    transform: scale(0.6);
+    filter: brightness(0.4);
   }
 }
 
@@ -34,9 +38,32 @@ body {
 }
 
 .atom-destroying {
-  animation: atom-destroy 0.35s ease-out forwards;
+  animation: atom-destroy 0.4s ease-out forwards;
+  pointer-events: none;
 }
 
 .atom-effect-flash {
   animation: atom-effect-flash 0.3s ease-out;
+}
+
+@keyframes damage-popup {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-32px) scale(1.15);
+  }
+}
+
+.damage-popup {
+  animation: damage-popup 1.2s ease-out forwards;
+  pointer-events: none;
+}
+.damage-popup text {
+  paint-order: stroke fill;
 }

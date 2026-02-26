@@ -8,7 +8,7 @@ import {
   handleAttackEnemyCell,
   clearCellsWithNoBlack,
 } from './game/attack.js'
-import { applyEffectBlue, applyEffectGreen, applyEffectYellow, applyEffectRedRandom, applyEffectGray, getConnectivityChoice, applyConnectivityChoice, attackPower, defensePower } from './game/combat.js'
+import { applyEffectBlue, applyEffectGreen, applyEffectYellow, applyEffectRedRandom, applyEffectGray, getConnectivityChoice, applyConnectivityChoice, attackPower, defensePower, resolveDirectAttack } from './game/combat.js'
 import { PHASE_PLACE, PHASE_ACTION, INITIAL_HP, ATOM_BLACK } from './game/config.js'
 import { runAIPlace, runAIPlaceStep, runAIPlaceStepLevel2, getAIAttackOptions, runOneAIAttack, runAIEndTurn, runAIRedEffect, runAIBlueEffect } from './game/ai.jsx'
 import { Cell } from './game/cell.js'
@@ -45,11 +45,15 @@ export default function App() {
   const [connectivityChoice, setConnectivityChoice] = useState(null)
   const [pendingAction, setPendingAction] = useState(null)
   const [destroyingAtoms, setDestroyingAtoms] = useState([])
+  const [damagePopup, setDamagePopup] = useState(null)
   const [effectFlashAtom, setEffectFlashAtom] = useState(null)
   const [testMode, setTestMode] = useState(false)
   const nextConnectivityChoiceRef = useRef(null)
   const destroyTimeoutRef = useRef(null)
   const aiAttackDestroyedRef = useRef(null)
+  const aiAttackDamageRef = useRef(null)
+  const aiDamagePopupRef = useRef(null)
+  const damagePopupTimeoutRef = useRef(null)
   const aiPlaceTimeoutRef = useRef(null)
   const aiLevel2ActionTimeoutRef = useRef(null)
   const aiLevel2ContinueRef = useRef(false)
@@ -145,7 +149,7 @@ export default function App() {
       destroyTimeoutRef.current = setTimeout(() => {
         setDestroyingAtoms([])
         destroyTimeoutRef.current = null
-      }, 380)
+      }, 420)
     }
   }, [])
 
@@ -153,6 +157,15 @@ export default function App() {
     playEffectSound()
     setEffectFlashAtom({ player, cellIndex, r, c })
     setTimeout(() => setEffectFlashAtom(null), 320)
+  }, [])
+
+  const triggerDamagePopup = useCallback((player, cellIndex, value) => {
+    if (damagePopupTimeoutRef.current) clearTimeout(damagePopupTimeoutRef.current)
+    setDamagePopup({ player, cellIndex, value })
+    damagePopupTimeoutRef.current = setTimeout(() => {
+      setDamagePopup(null)
+      damagePopupTimeoutRef.current = null
+    }, 1200)
   }, [])
 
   // AI 对战模式：轮到 P1（AI）时自动执行排布与进攻（分步显示排布、高亮攻击目标、破坏动画）。必须在 resetAttackState、triggerDestroyAnimation、triggerEffectFlash 之后定义。
@@ -201,12 +214,18 @@ export default function App() {
             if (prev.currentPlayer !== 1 || prev.phase !== PHASE_ACTION) return prev
             const ret = runOneAIAttack(prev, [myCi, enCi])
             aiAttackDestroyedRef.current = ret.destroyedAtoms
+            aiAttackDamageRef.current = ret.damage ?? 1
             return { ...prev }
           })
           setTimeout(() => {
             resetAttackState()
             if (aiAttackDestroyedRef.current?.length) triggerDestroyAnimation(aiAttackDestroyedRef.current)
             aiAttackDestroyedRef.current = null
+            if (aiAttackDamageRef.current != null) {
+              setAttackMessage(`造成 ${aiAttackDamageRef.current} 点伤害`)
+              triggerDamagePopup(0, enCi, aiAttackDamageRef.current)
+              aiAttackDamageRef.current = null
+            }
           }, 0)
         }, attackHighlightMs)
         return () => clearTimeout(t)
@@ -274,12 +293,18 @@ export default function App() {
                 if (prev.currentPlayer !== 1 || prev.phase !== PHASE_ACTION) return prev
                 const ret = runOneAIAttack(prev, [myCi, enCi])
                 aiAttackDestroyedRef.current = ret.destroyedAtoms ?? []
+                aiAttackDamageRef.current = ret.damage ?? 1
                 return { ...prev }
               })
               setTimeout(() => {
                 resetAttackState()
                 if (aiAttackDestroyedRef.current?.length) triggerDestroyAnimation(aiAttackDestroyedRef.current)
                 aiAttackDestroyedRef.current = null
+                if (aiAttackDamageRef.current != null) {
+                  setAttackMessage(`造成 ${aiAttackDamageRef.current} 点伤害`)
+                  triggerDamagePopup(0, enCi, aiAttackDamageRef.current)
+                  aiAttackDamageRef.current = null
+                }
                 aiLevel2ActionTimeoutRef.current = setTimeout(runNextLevel2Action, attackHighlightMs)
               }, 0)
             }, attackHighlightMs)
@@ -298,7 +323,7 @@ export default function App() {
         }
       }
     }
-  }, [inGame, state.currentPlayer, state.phase, state.config?.gameMode, state.turnAttackUsed, resetAttackState, triggerDestroyAnimation, triggerEffectFlash])
+  }, [inGame, state.currentPlayer, state.phase, state.config?.gameMode, state.turnAttackUsed, resetAttackState, triggerDestroyAnimation, triggerEffectFlash, triggerDamagePopup])
 
   const handleEffectConfirm = useCallback(() => {
     if (!effectPendingAtom) return
@@ -372,7 +397,14 @@ export default function App() {
     const ret = handleAttackEnemyCell(next, attackMyCell, attackEnemyCell)
     setState(next)
     setActionSubstate(ret.substate)
-    setAttackMessage(ret.message ?? '')
+    if (ret.damage != null && (ret.substate === 'idle' || ret.substate === 'defender_choose_connected')) {
+      triggerDamagePopup(attackEnemyCell[0], attackEnemyCell[1], ret.damage)
+    }
+    if (ret.substate === 'idle' && ret.attackConsumed !== false && ret.damage != null) {
+      setAttackMessage(`进攻完成，造成 ${ret.damage} 点伤害`)
+    } else {
+      setAttackMessage(ret.message ?? '')
+    }
     if (ret.destroyedAtoms?.length) triggerDestroyAnimation(ret.destroyedAtoms)
     if (ret.substate === 'idle' && ret.attackConsumed !== false) {
       updateState((s) => {
@@ -405,7 +437,7 @@ export default function App() {
           s.attackedEnemyCellIndicesThisTurn.push(cc.cellIndex)
         })
         resetAttackState()
-        setAttackMessage('进攻完成（AI 格已自动保留黑原子最多的连通子集）')
+        setAttackMessage(`进攻完成（AI 格已自动保留黑原子最多的连通子集），造成 ${ret.damage ?? 1} 点伤害`)
       } else {
         setConnectivityChoice(cc)
         setPendingAction(ret.pendingAction ?? null)
@@ -417,7 +449,7 @@ export default function App() {
         updateState((s) => { s.currentPlayer = cc.defender })
       }
     }
-  }, [state, attackMyCell, attackEnemyCell, updateState, resetAttackState, triggerDestroyAnimation])
+  }, [state, attackMyCell, attackEnemyCell, updateState, resetAttackState, triggerDestroyAnimation, triggerDamagePopup])
 
   const handleAttackCancel = useCallback(() => {
     setAttackEnemyCell(null)
@@ -467,7 +499,7 @@ export default function App() {
             s.attackedEnemyCellIndicesThisTurn.push(cellIndex)
           })
           resetAttackState()
-          setAttackMessage('进攻完成')
+          setAttackMessage('进攻完成，造成 1 点伤害')
         } else if (pendingAction === 'red_effect') {
           updateState((s) => {
             s.currentPlayer = 1 - defender
@@ -791,7 +823,12 @@ export default function App() {
   )
 
   if (!inGame) {
-    return <StartScreen onStart={handleStartGame} defaultConfig={state?.config} />
+    return (
+      <StartScreen
+        onStart={handleStartGame}
+        defaultConfig={state?.config ? { ...state.config, gameMode: 'normal' } : undefined}
+      />
+    )
   }
 
   return (
@@ -901,6 +938,7 @@ export default function App() {
           attackHighlightCell={attackMyCell ? { player: attackMyCell[0], cellIndex: attackMyCell[1] } : null}
           connectivityChoice={connectivityChoice ?? state.pendingConnectivityChoice}
           destroyingAtoms={destroyingAtoms}
+          damagePopup={damagePopup}
           effectFlashAtom={effectFlashAtom}
           effectPendingAtom={effectPendingAtom}
           actionSubstate={actionSubstate}
@@ -988,12 +1026,17 @@ export default function App() {
         }}
         onDirectAttackConfirm={() => {
           if (attackMyCell) {
+            const defender = 1 - attackMyCell[0]
+            const attackerCell = state.cells[attackMyCell[0]][attackMyCell[1]]
+            const dmg = resolveDirectAttack(attackerCell)
             updateState((s) => {
-              const dmg = applyDirectAttack(s, s.cells[attackMyCell[0]][attackMyCell[1]])
+              applyDirectAttack(s, s.cells[attackMyCell[0]][attackMyCell[1]])
               s.attackedCellsThisTurn = s.attackedCellsThisTurn ?? []
               s.attackedCellsThisTurn.push([attackMyCell[0], attackMyCell[1]])
-              setAttackMessage(`直接攻击，造成 ${dmg} 点伤害`)
+              return null
             })
+            setAttackMessage(`直接攻击，造成 ${dmg} 点伤害`)
+            triggerDamagePopup(defender, 0, dmg)
             resetAttackState()
           }
         }}

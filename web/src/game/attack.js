@@ -50,15 +50,16 @@ export function resolveAttackRandom(state, attackMyCell, attackEnemyCell) {
   const atkCell = state.cells[myP][myCi]
   let defCell = state.cells[enP][enCi]
   const allBlacks = [...defCell.blackPoints()]
+  const damageDealt = 1
   if (allBlacks.length === 0) {
-    state.hp[enP] = Math.max(0, (state.hp[enP] ?? 0) - 1)
+    state.hp[enP] = Math.max(0, (state.hp[enP] ?? 0) - damageDealt)
     state.turnAttackUsed++
     clearCellsWithNoBlack(state, enP)
-    return { substate: 'idle', message: '攻击造成 1 点伤害（该格无黑原子）', destroyedAtoms: [] }
+    return { substate: 'idle', message: '攻击造成 1 点伤害（该格无黑原子）', destroyedAtoms: [], damage: damageDealt }
   }
   const { destroyedAtoms: firstDestroyed } = selectAndDestroyBlackTargets(state, enP, enCi, defCell, 1, true)
   const destroyedAtoms = [...firstDestroyed]
-  state.hp[enP] = Math.max(0, (state.hp[enP] ?? 0) - 1)
+  state.hp[enP] = Math.max(0, (state.hp[enP] ?? 0) - damageDealt)
   const extra = extraDestroys(atkCell, defCell)
   if (extra > 0 && defCell.hasBlack()) {
     const { destroyedAtoms: extraDestroyed } = selectAndDestroyBlackTargets(state, enP, enCi, defCell, extra, true)
@@ -73,11 +74,12 @@ export function resolveAttackRandom(state, attackMyCell, attackEnemyCell) {
       connectivityChoice: { defender: enP, cellIndex: enCi, ...choice },
       pendingAction: 'attack',
       destroyedAtoms,
+      damage: damageDealt,
     }
   }
   clearCellsWithNoBlack(state, enP)
   state.turnAttackUsed++
-  return { substate: 'idle', message: '进攻完成', destroyedAtoms }
+  return { substate: 'idle', message: '进攻完成', destroyedAtoms, damage: damageDealt }
 }
 
 /**
@@ -90,15 +92,16 @@ export function resolveAttackRandomAuto(state, attackMyCell, attackEnemyCell) {
   let defCell = state.cells[enP][enCi]
   const atkCell = state.cells[myP][myCi]
   const allBlacks = [...defCell.blackPoints()]
+  const damageDealt = 1
   if (allBlacks.length === 0) {
-    state.hp[enP] = Math.max(0, (state.hp[enP] ?? 0) - 1)
+    state.hp[enP] = Math.max(0, (state.hp[enP] ?? 0) - damageDealt)
     state.turnAttackUsed++
     clearCellsWithNoBlack(state, enP)
-    return { substate: 'idle', message: '攻击造成 1 点伤害（该格无黑原子）', destroyedAtoms: [] }
+    return { substate: 'idle', message: '攻击造成 1 点伤害（该格无黑原子）', destroyedAtoms: [], damage: damageDealt }
   }
   const { destroyedAtoms: firstDestroyed } = selectAndDestroyBlackTargets(state, enP, enCi, defCell, 1, true)
   const destroyedAtoms = [...firstDestroyed]
-  state.hp[enP] = Math.max(0, (state.hp[enP] ?? 0) - 1)
+  state.hp[enP] = Math.max(0, (state.hp[enP] ?? 0) - damageDealt)
   defCell = state.cells[enP][enCi]
   const extra = extraDestroys(atkCell, defCell)
   if (extra > 0 && defCell.hasBlack()) {
@@ -126,7 +129,7 @@ export function resolveAttackRandomAuto(state, attackMyCell, attackEnemyCell) {
   state.attackedCellsThisTurn.push([myP, myCi])
   state.attackedEnemyCellIndicesThisTurn = state.attackedEnemyCellIndicesThisTurn ?? []
   state.attackedEnemyCellIndicesThisTurn.push(enCi)
-  return { substate: 'idle', message: '进攻完成', destroyedAtoms }
+  return { substate: 'idle', message: '进攻完成', destroyedAtoms, damage: damageDealt }
 }
 
 /**

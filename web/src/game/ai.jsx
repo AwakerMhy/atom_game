@@ -296,7 +296,7 @@ export function runOneAIAttack(state, chosenOption) {
     ? chosenOption
     : options[Math.floor(Math.random() * options.length)]
   const ret = resolveAttackRandomAuto(state, [ai, myCi], [player, enCi])
-  return { executed: true, destroyedAtoms: ret.destroyedAtoms ?? [] }
+  return { executed: true, destroyedAtoms: ret.destroyedAtoms ?? [], damage: ret.damage ?? 1 }
 }
 
 /**

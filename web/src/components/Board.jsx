@@ -382,6 +382,7 @@ function Board({
   attackHighlightCell = null,
   connectivityChoice = null,
   destroyingAtoms = [],
+  damagePopup = null,
   effectFlashAtom = null,
   effectPendingAtom = null,
   actionSubstate = null,
@@ -482,6 +483,8 @@ function Board({
     ? { x: attackToRect.x + attackToRect.w / 2, y: attackToRect.y + attackToRect.h / 2 }
     : null
 
+  const damagePopupRect = damagePopup && layout[damagePopup.player]?.[damagePopup.cellIndex]
+
   return (
     <svg width={width} height={height} className="select-none flex-shrink-0" style={{ overflow: 'visible' }}>
       <defs>
@@ -506,6 +509,28 @@ function Board({
           strokeWidth="3"
           markerEnd="url(#attack-arrowhead)"
         />
+      )}
+      {damagePopupRect && (
+        <g
+          className="damage-popup"
+          style={{
+            transformOrigin: `${damagePopupRect.x + damagePopupRect.w / 2}px ${damagePopupRect.y + damagePopupRect.h / 2}px`,
+          }}
+        >
+          <text
+            x={damagePopupRect.x + damagePopupRect.w / 2}
+            y={damagePopupRect.y + damagePopupRect.h / 2 - 6}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill="#f87171"
+            fontSize="22"
+            fontWeight="bold"
+            stroke="#7f1d1d"
+            strokeWidth="1.5"
+          >
+            -{damagePopup.value}
+          </text>
+        </g>
       )}
       {currentPlayer === 1 && (
         <rect x={-highlightPad} y={layout[1][0].y} width={width + highlightPad * 2} height={rowBlockH} fill="rgba(100, 140, 200, 0.1)" rx={4} />
